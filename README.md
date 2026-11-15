@@ -30,3 +30,5 @@ Steam 愿望单增强
 · 仅在 store.steampowered.com/wishlist/* 页面生效。
 · 小黑盒源只覆盖游戏本体，DLC、捆绑包、软件在该区可能显示无史低数据。
 · 汇率获取失败时，汇总条会提示并暂停人民币折算。
+<img width="1439" height="781" alt="CleanShot 04 17 17" src="https://github.com/user-attachments/assets/712b245a-2485-4239-855f-dce3c5589a9a" />
+<img width="1417" height="780" alt="CleanShot 04 20 07" src="https://github.com/user-attachments/assets/810c8483-e2b7-4ff5-b82c-28a7b3591c91" />
