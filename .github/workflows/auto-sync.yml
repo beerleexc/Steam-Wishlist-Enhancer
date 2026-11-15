@@ -1,19 +1,28 @@
-name: Auto Sync Fork
+name: Upstream Sync
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *' # 每天 UTC 0点自动运行
+  workflow_dispatch:    # 允许手动点击运行
 
 permissions:
-  contents: write
+  contents: write       # 赋予写入权限
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Autoupdate Fork Action
-        uses: Shurtu-gal/autoupdate-fork-action@v1
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+
+      - name: Sync upstream changes
+        uses: aormsby/fork-sync-with-upstream-action@v3.4.3
+        with:
+          # ⚠️ 注意：把下面这行改成你 Fork 的【原仓库】的完整路径，不要填你自己的！
+          # 例如原作者的仓库是 https://github.com/abc/steam-wishlist-enhance，那就填 abc/steam-wishlist-enhance
+          upstream_sync_repo: 原作者的GitHub用户名/原仓库名
+          upstream_sync_branch: main
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
