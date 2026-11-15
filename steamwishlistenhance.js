@@ -4,7 +4,7 @@
 // @description 仅适用于Steam愿望单：可切换中、印、美、乌克兰四地查询价格与史低，汇总全清单价格并显示大促倒计时；乌克兰无分区史低数据源，仅显示现价
 // @author      beerlee
 // @license     GPL version 3 or any later version
-// @version     1.00
+// @version     1.23
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
