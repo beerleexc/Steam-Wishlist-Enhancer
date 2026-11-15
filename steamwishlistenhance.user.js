@@ -1,10 +1,14 @@
 // ==UserScript==
 // @name        Steam愿望单增强
-// @namespace   SteamwishlistEnhacne
-// @description 仅适用于Steam愿望单：可切换中、美、印、印尼、乌、俄、独联体（阿塞拜疆）、阿、土、日查询价格与史低，汇总全清单价格并显示大促倒计时；中/美/印/印尼/日史低取自 ITAD，乌/俄/独联体/阿/土取自小黑盒（仅 app）
+// @name:zh-CN  Steam愿望单增强
+// @name:en     Steam Wishlist Enhancer
+// @namespace   https://github.com/beerleexc
+// @description Steam愿望单价格、史低、合计与四季促销倒计时，界面自动跟随 Steam 或浏览器语言。/ Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists, with automatic Chinese/English UI.
+// @description:zh-CN 仅适用于Steam愿望单：可切换中、美、印、印尼、乌、俄、独联体（阿塞拜疆）、阿、土、日查询价格与史低，汇总全清单价格并显示大促倒计时；中/美/印/印尼/日史低取自 ITAD，乌/俄/独联体/阿/土取自小黑盒（仅 app）
+// @description:en Enhances Steam wishlists with regional current and historical-low prices, wishlist totals, and seasonal sale countdowns. Historical lows for CN/US/IN/ID/JP come from ITAD; UA/RU/CIS/AR/TR use Xiaoheihe (apps only).
 // @author      beerlee
-// @license     GPL version 3 or any later version
-// @version     1.20
+// @license     MIT
+// @version     1.3.0
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -22,17 +26,47 @@
     "use strict";
     if (document.documentElement.dataset.shcWishlistActive) return;
     document.documentElement.dataset.shcWishlistActive = "1";
+    const UI_LANGUAGE = (document.documentElement.lang || navigator.language || "zh-CN").toLowerCase();
+    const IS_ZH = UI_LANGUAGE.startsWith("zh");
+    const T = ({
+        zh: {
+            switchRegion: "切换查询地区", networkError: "网络错误", requestTimeout: "请求超时",
+            winter: "❄️ 冬季特卖", spring: "🌱 春季特卖", summer: "☀️ 夏季特卖", autumn: "🍂 秋季特卖",
+            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败",
+            lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低", current: "当前", regionLocked: "锁区",
+            saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项已到史低`,
+            includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
+            missing: n => `${n} 项游戏暂无数据`, onSale: n => `折扣中 ${n} 项`,
+            loaded: n => `已加载 ${n} 项`, backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
+            startsIn: "距开始还有", endsIn: "距结束还有", days: " 天 ", hours: " 时 ", minutes: " 分",
+            native: value => `（${value}）`,
+            saleTitle: (sale, start, end) => `${sale.label} 太平洋时间 ${formatSaleDate(start)} 开幕 — ${formatSaleDate(end)} 收摊｜北京 ${new Date(start).toLocaleString("zh-CN")} — ${new Date(end).toLocaleString("zh-CN")}`
+        },
+        en: {
+            switchRegion: "Switch region", networkError: "Network error", requestTimeout: "Request timed out",
+            winter: "❄️ Winter Sale", spring: "🌱 Spring Sale", summer: "☀️ Summer Sale", autumn: "🍂 Autumn Sale",
+            empty: "📊 Wishlist is empty", ratesMissing: "⚠ Exchange rates unavailable; CNY conversion is disabled",
+            lowTotal: "Historical low total", currentTotal: "Current total", lowest: "Low ", current: "Current ", regionLocked: "Region locked",
+            saveAtLow: value => `Save ${value} at historical lows`, atLow: n => `${n} at historical low`,
+            includes: value => `Includes ${value} prices`, noLow: n => `⚠ No historical-low data for ${n} items`,
+            missing: n => `${n} items unavailable`, onSale: n => `${n} on sale`,
+            loaded: n => `${n} loaded`, backToTop: "Back to top", backToTopTitle: "Back to top",
+            startsIn: "Starts in", endsIn: "Ends in", days: " d ", hours: " h ", minutes: " m",
+            native: value => ` (${value})`,
+            saleTitle: (sale, start, end) => `${sale.label} | PT: ${formatSaleDate(start)} — ${formatSaleDate(end)} | Local: ${new Date(start).toLocaleString("en-US")} — ${new Date(end).toLocaleString("en-US")}`
+        }
+    })[IS_ZH ? "zh" : "en"];
     const COUNTRIES = {
-        cn: { name: "🇨🇳 中国", currency: "CNY", lowSource: "augmented" },
-        us: { name: "🇺🇸 美国", currency: "USD", lowSource: "augmented" },
-        in: { name: "🇮🇳 印度", currency: "INR", lowSource: "augmented" },
-        id: { name: "🇮🇩 印尼", currency: "IDR", lowSource: "augmented" },
-        jp: { name: "🇯🇵 日本", currency: "JPY", lowSource: "augmented" },
-        ua: { name: "🇺🇦 乌克兰", currency: "UAH", lowSource: "xiaoheihe" },
-        ru: { name: "🇷🇺 俄罗斯", currency: "RUB", lowSource: "xiaoheihe" },
-        az: { name: "🇦🇿 独联体", currency: "USD", lowSource: "xiaoheihe" },
-        ar: { name: "🇦🇷 阿根廷", currency: "USD", lowSource: "xiaoheihe" },
-        tr: { name: "🇹🇷 土耳其", currency: "USD", lowSource: "xiaoheihe" }
+        cn: { name: IS_ZH ? "🇨🇳 中国" : "🇨🇳 China", currency: "CNY", lowSource: "augmented" },
+        us: { name: IS_ZH ? "🇺🇸 美国" : "🇺🇸 United States", currency: "USD", lowSource: "augmented" },
+        in: { name: IS_ZH ? "🇮🇳 印度" : "🇮🇳 India", currency: "INR", lowSource: "augmented" },
+        id: { name: IS_ZH ? "🇮🇩 印尼" : "🇮🇩 Indonesia", currency: "IDR", lowSource: "augmented" },
+        jp: { name: IS_ZH ? "🇯🇵 日本" : "🇯🇵 Japan", currency: "JPY", lowSource: "augmented" },
+        ua: { name: IS_ZH ? "🇺🇦 乌克兰" : "🇺🇦 Ukraine", currency: "UAH", lowSource: "xiaoheihe" },
+        ru: { name: IS_ZH ? "🇷🇺 俄罗斯" : "🇷🇺 Russia", currency: "RUB", lowSource: "xiaoheihe" },
+        az: { name: IS_ZH ? "🇦🇿 独联体" : "🇦🇿 CIS", currency: "USD", lowSource: "xiaoheihe" },
+        ar: { name: IS_ZH ? "🇦🇷 阿根廷" : "🇦🇷 Argentina", currency: "USD", lowSource: "xiaoheihe" },
+        tr: { name: IS_ZH ? "🇹🇷 土耳其" : "🇹🇷 Türkiye", currency: "USD", lowSource: "xiaoheihe" }
     };
     const COUNTRY_CODES = new Set(Object.keys(COUNTRIES).map(c => c.toUpperCase()));
     const CURRENCY_TABLE = [
@@ -72,8 +106,8 @@
                 data: opts.data === undefined ? undefined : JSON.stringify(opts.data),
                 timeout: opts.timeout || 2e4,
                 onload: r => r.status >= 200 && r.status < 400 ? resolve(r.responseText) : reject(Object.assign(new Error(`HTTP ${r.status}`), { status: r.status })),
-                onerror: () => reject(new Error("网络错误")),
-                ontimeout: () => reject(new Error("请求超时"))
+                onerror: () => reject(new Error(T.networkError)),
+                ontimeout: () => reject(new Error(T.requestTimeout))
             });
         });
     }
@@ -271,8 +305,8 @@
         btn.className = "shc-cc-btn";
         const select = document.createElement("select");
         select.className = "shc-cc-native";
-        select.title = "切换查询地区";
-        select.setAttribute("aria-label", "切换查询地区");
+        select.title = T.switchRegion;
+        select.setAttribute("aria-label", T.switchRegion);
         Object.keys(COUNTRIES).forEach(code => {
             const option = document.createElement("option");
             option.value = code;
@@ -772,10 +806,10 @@
         box.style.backgroundImage = image;
     }
     const SALE_URL = "https://partner.steamgames.com/doc/marketing/upcoming_events?l=schinese";
-    const SALE_KEY = "steamHistorySalesV6";
+    const SALE_KEY = `steamHistorySalesV6_${IS_ZH ? "zh" : "en"}`;
     const SALE_TTL = 6 * 60 * 60 * 1e3;
     const SALE_FAIL_TTL = 60 * 60 * 1e3;
-    const SEASON_ZH = { "冬季": "❄️ 冬季特卖", "春季": "🌱 春季特卖", "夏日": "☀️ 夏季特卖", "夏季": "☀️ 夏季特卖", "秋季": "🍂 秋季特卖" };
+    const SEASON_LABELS = { "冬季": T.winter, "春季": T.spring, "夏日": T.summer, "夏季": T.summer, "秋季": T.autumn };
     const PT_FORMAT = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
         hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
@@ -804,7 +838,7 @@
             const endMs = pacificSaleMs(+m[4] || +m[1], +m[5], +m[6]);
             if (endMs <= Date.now()) return;
             out.push({
-                label: SEASON_ZH[season[1]],
+                label: SEASON_LABELS[season[1]],
                 startMs: pacificSaleMs(+m[1], +m[2], +m[3]),
                 endMs: endMs
             });
@@ -834,9 +868,10 @@
     let saleTimer = null;
     let cdNodes = null;
     let cdSignature = "";
-    function cnDate(ms) {
+    const EN_SALE_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    function formatSaleDate(ms) {
         const d = new Date(ms);
-        return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日`;
+        return IS_ZH ? `${d.getUTCMonth() + 1}月${d.getUTCDate()}日` : EN_SALE_DATE.format(d);
     }
     function writeText(node, value) {
         if (node && node.nodeValue !== value) node.nodeValue = value;
@@ -859,15 +894,15 @@
         };
         cdSignature = `${sale.label}|${sale.startMs}|${sale.endMs}`;
         add("shc-cd-name", `${sale.label} `);
-        add("shc-cd-date", `${cnDate(sale.startMs)} — ${cnDate(sale.endMs)} `);
-        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? "距结束还有" : "距开始还有") };
+        add("shc-cd-date", `${formatSaleDate(sale.startMs)} — ${formatSaleDate(sale.endMs)} `);
+        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? T.endsIn : T.startsIn) };
         countdownEl.appendChild(document.createTextNode(" "));
         cdNodes.days = num();
-        add("shc-cd-unit", " 天 ");
+        add("shc-cd-unit", T.days);
         cdNodes.hours = num();
-        add("shc-cd-unit", " 时 ");
+        add("shc-cd-unit", T.hours);
         cdNodes.mins = num();
-        add("shc-cd-unit", " 分");
+        add("shc-cd-unit", T.minutes);
     }
     function paintCountdown() {
         if (!countdownEl) return;
@@ -880,11 +915,11 @@
         if (cdSignature !== `${sale.label}|${sale.startMs}|${sale.endMs}`) buildCountdown(sale, now);
         const live = saleIsLive(sale, now);
         const left = Math.floor(((live ? sale.endMs : sale.startMs) - now) / 6e4);
-        writeText(cdNodes.state, live ? "距结束还有" : "距开始还有");
+        writeText(cdNodes.state, live ? T.endsIn : T.startsIn);
         writeText(cdNodes.days, String(Math.floor(left / 1440)));
         writeText(cdNodes.hours, String(Math.floor(left % 1440 / 60)));
         writeText(cdNodes.mins, String(left % 60));
-        const title = `${sale.label} 太平洋时间 ${cnDate(sale.startMs)} 开幕 — ${cnDate(sale.endMs)} 收摊` + `｜北京 ${new Date(sale.startMs).toLocaleString("zh-CN")} — ${new Date(sale.endMs).toLocaleString("zh-CN")}`;
+        const title = T.saleTitle(sale, sale.startMs, sale.endMs);
         if (countdownEl.title !== title) countdownEl.title = title;
         if (countdownEl.style.display === "none") countdownEl.style.display = "";
     }
@@ -914,7 +949,7 @@
         syncBarSurface(box);
         const s = summarize();
         if (s.total === 0) {
-            writeIfChanged(body, '<span class="dim">📊 愿望单为空</span>');
+            writeIfChanged(body, `<span class="dim">${T.empty}</span>`);
             if (!collecting) revealBar(box);
             updateCollectionProgress();
             return;
@@ -922,16 +957,16 @@
         const noLowAtAll = s.counted > 0 && s.noLow === s.counted;
         const nativeText = map => {
             const keys = Object.keys(map).filter(c => c !== "CNY" && map[c] > 0);
-            return keys.length === 1 ? `（${formatPrice(map[keys[0]], keys[0])}）` : "";
+            return keys.length === 1 ? T.native(formatPrice(map[keys[0]], keys[0])) : "";
         };
-        const parts = s.ratesMissing ? [ `<span class="warn">⚠ 汇率获取失败，暂无法折算人民币</span>` ] : [ `<span class="label">史低合计</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`, `<span class="dim">当前合计</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>` ];
-        if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">等史低可省 ${formatCNY(s.save)}</span>`);
-        if (s.atLow > 0) parts.push(`<span class="save">${s.atLow} 项已到史低</span>`);
+        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ `<span class="label">${T.lowTotal}</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`, `<span class="dim">${T.currentTotal}</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>` ];
+        if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(formatCNY(s.save))}</span>`);
+        if (s.atLow > 0) parts.push(`<span class="save">${T.atLow(s.atLow)}</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
-        if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">含 ${nonCNY.join("/")} 报价</span>`);
-        if (s.noLow) parts.push(`<span class="warn">⚠ ${s.noLow} 项无史低数据</span>`);
-        if (s.missing) parts.push(`<span class="warn">${s.missing} 项游戏暂无数据</span>`);
-        writeIfChanged(body, `<span class="count">折扣中 ${s.onSale} 项</span>` + parts.join(""));
+        if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
+        if (s.noLow) parts.push(`<span class="warn">${T.noLow(s.noLow)}</span>`);
+        if (s.missing) parts.push(`<span class="warn">${T.missing(s.missing)}</span>`);
+        writeIfChanged(body, `<span class="count">${T.onSale(s.onSale)}</span>` + parts.join(""));
         if (!collecting) revealBar(box);
         updateCollectionProgress();
     }
@@ -943,7 +978,7 @@
         const idsComplete = serverWishlistLoaded || (expectedCount > 0 ? wishlistIds.size >= expectedCount : true);
         const allAttempted = wishlistIds.size > 0 && doneIds.size >= wishlistIds.size;
         const busy = working || !idsComplete || !allAttempted;
-        setProgress(busy ? `已加载 ${loaded} 项` : "返回顶部", busy);
+        setProgress(busy ? T.loaded(loaded) : T.backToTop, busy);
     }
     async function startCollection() {
         const run = generation;
@@ -1199,7 +1234,7 @@
         const compact = isMobileUI() ? " compact" : "";
         if (state === "locked") {
             div.className = `shc-price locked${compact}`;
-            div.textContent = "锁区";
+            div.textContent = T.regionLocked;
             return div;
         }
         const atLow = isAtHistoricalLow(info.lowest, info.current);
@@ -1209,7 +1244,7 @@
             const cut = Number(entry.cut) > 0 ? `-${entry.cut}%` : "";
             return `<span class="${cls}">${label}${formatPrice(entry.price.amount, entry.price.currency)}` + `${cut ? ` <span class="shc-discount">${cut}</span>` : ""}</span>`;
         };
-        div.innerHTML = line("shc-mobile-lowline", "史低", info.lowest) + line("shc-mobile-currentline", "当前", info.current);
+        div.innerHTML = line("shc-mobile-lowline", T.lowest, info.lowest) + line("shc-mobile-currentline", T.current, info.current);
         return div;
     }
     function priceSignature(info) {
@@ -1302,7 +1337,7 @@
         }
         const div = document.createElement("div");
         div.id = "shc-wishlist-progress";
-        div.title = "点击返回页面顶部";
+        div.title = T.backToTopTitle;
         div.setAttribute("role", "button");
         div.tabIndex = 0;
         const icon = document.createElement("span");
@@ -1444,6 +1479,7 @@
         @keyframes shc-funnel-spin { to { transform: rotate(360deg); } }
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; }
+        .shc-mobile #shc-sale-countdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
             font-size: 12px; width: 100%; max-width: 100%; min-width: 0;
             white-space: normal; overflow-wrap: anywhere; }
