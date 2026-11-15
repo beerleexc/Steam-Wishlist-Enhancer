@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name        Steam愿望单增强
-// @namespace   SteamWishlistEnhacne
+// @namespace   SteamwishlistEnhacne
 // @description 仅适用于Steam愿望单：可切换中、美、印、印尼、乌、俄、独联体（阿塞拜疆）、阿、土、日查询价格与史低，汇总全清单价格并显示大促倒计时；中/美/印/印尼/日史低取自 ITAD，乌/俄/独联体/阿/土取自小黑盒（仅 app）
 // @author      beerlee
 // @license     GPL version 3 or any later version
-// @version     1.1.0
+// @version     1.20
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -15,7 +15,7 @@
 // @connect     api.xiaoheihe.cn
 // @connect     open.er-api.com
 // @connect     store.steampowered.com
-// @connect     steamdb.info
+// @connect     partner.steamgames.com
 // @run-at      document-end
 // ==/UserScript==
 (function () {
@@ -35,8 +35,11 @@
         tr: { name: "🇹🇷 土耳其", currency: "USD", lowSource: "xiaoheihe" }
     };
     const COUNTRY_CODES = new Set(Object.keys(COUNTRIES).map(c => c.toUpperCase()));
-    const CURRENCY_SYMBOLS = { CNY: "¥", INR: "₹", USD: "$", UAH: "₴", JPY: "¥", RUB: "₽", TRY: "₺", IDR: "Rp" };
-    const CURRENCY_HINTS = [ [ /руб|₽/, "RUB" ], [ /^Rp/, "IDR" ], [ /₺/, "TRY" ], [ /₹/, "INR" ], [ /₴/, "UAH" ], [ /\$/, "USD" ] ];
+    const CURRENCY_TABLE = [
+        [ /руб|₽/, "RUB", "₽" ], [ /^Rp/, "IDR", "Rp" ], [ /₺/, "TRY", "₺" ],
+        [ /₹/, "INR", "₹" ], [ /₴/, "UAH", "₴" ], [ /\$/, "USD", "$" ]
+    ];
+    const CURRENCY_SYMBOLS = { CNY: "¥", JPY: "¥", ...Object.fromEntries(CURRENCY_TABLE.map(([ , code, sym ]) => [ code, sym ])) };
     const ZERO_DECIMAL = new Set([ "JPY", "IDR" ]);
     const STORE_VERSION = "v4";
     const MIN_REQUEST_GAP = 1200;
@@ -123,7 +126,8 @@
         const rate = cnyPerUnit(currency);
         return rate ? amount * rate : null;
     };
-    const formatCNY = v => "¥" + (v || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const CNY_FORMAT = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formatCNY = v => "¥" + CNY_FORMAT.format(v || 0);
     const hasAnyPrice = info => !!(info && (info.lowest && info.lowest.price || info.current && info.current.price));
     function isAtHistoricalLow(lowest, current) {
         const lp = lowest && lowest.price;
@@ -160,7 +164,7 @@
         const input = {
             ids: ids,
             context: { language: "schinese", country_code: country.toUpperCase() },
-            data_request: { include_basic_info: false, include_all_purchase_options: false }
+            data_request: { include_basic_info: false, include_all_purchase_options: false, include_release: true }
         };
         return getJSON({
             url: STEAM_GETITEMS + "?input_json=" + encodeURIComponent(JSON.stringify(input)),
@@ -168,20 +172,23 @@
         }).then(d => {
             const out = {};
             ((d.response || {}).store_items || []).forEach(it => {
-                const po = it.best_purchase_option;
                 const type = STEAM_TYPES[it.item_type];
                 if (!type) return;
-                if (!po || po.final_price_in_cents == null) {
-                    if (it.is_free) out[`${type}/${it.id}`] = { free: true, price: { amount: 0, currency: COUNTRIES[country].currency }, cut: 0 };
+                const key = `${type}/${it.id}`;
+                if (it.is_coming_soon) {
+                    out[key] = { unreleased: true };
                     return;
                 }
-                const hint = CURRENCY_HINTS.find(h => h[0].test(po.formatted_final_price || ""));
-                const unit = hint ? hint[1] : COUNTRIES[country].currency;
-                const amount = Number(po.final_price_in_cents) / 100;
-                const regular = po.original_price_in_cents != null ? Number(po.original_price_in_cents) / 100 : amount;
-                out[`${type}/${it.id}`] = {
-                    price: { amount: amount, currency: unit },
-                    regular: { amount: regular, currency: unit },
+                const po = it.best_purchase_option;
+                if (!po || po.final_price_in_cents == null) {
+                    if (it.is_free) out[key] = { free: true, price: { amount: 0, currency: COUNTRIES[country].currency }, cut: 0 };
+                    else out[key] = { regionLocked: true };
+                    return;
+                }
+                const hit = CURRENCY_TABLE.find(h => h[0].test(po.formatted_final_price || ""));
+                const unit = hit ? hit[1] : COUNTRIES[country].currency;
+                out[key] = {
+                    price: { amount: Number(po.final_price_in_cents) / 100, currency: unit },
                     cut: Number(po.discount_pct) > 0 ? Number(po.discount_pct) : 0
                 };
             });
@@ -214,7 +221,7 @@
         for (const appid of chunk.app) {
             if (gen !== generation) return;
             const key = `app/${appid}`;
-            if (!merged[key]) continue;
+            if (!merged[key] || merged[key].unreleased || merged[key].regionLocked) continue;
             const prev = prices[key];
             if (prev && prev.lowest && Date.now() - (prev.lowAt || 0) < XHH_LOW_TTL) {
                 merged[key].lowest = prev.lowest;
@@ -240,6 +247,19 @@
         });
         Object.keys(steam).forEach(key => {
             const entry = aug[key] || (aug[key] = {});
+            if (steam[key].unreleased) {
+                entry.unreleased = true;
+                delete entry.current;
+                delete entry.lowest;
+                return;
+            }
+            if (steam[key].regionLocked) {
+                entry.regionLocked = true;
+                delete entry.current;
+                delete entry.lowest;
+                return;
+            }
+            delete entry.regionLocked;
             entry.current = steam[key];
         });
         return aug;
@@ -281,7 +301,7 @@
         return wrap;
     }
     const ROW_SELECTOR = "div.Panel[data-index], .wishlist_row[data-appid]";
-    const OWN_SELECTOR = "#shc-wishlist-summary, #wishlist-country-controls, #wishlist-progress, .game_lowest_price";
+    const OWN_SELECTOR = "#shc-wishlist-summary, #shc-country-controls, #shc-wishlist-progress, .shc-price";
     const PRICE_KEY = "steamHistoryPrices";
     const PRICE_TTL = 30 * 60 * 1e3;
     const PRICE_KEEP = 24 * 60 * 60 * 1e3;
@@ -290,8 +310,47 @@
     const pendingIds = new Map;
     const doneIds = new Set;
     const fetchedKeys = new Set;
+    const failCount = new Map;
     const observedRows = new WeakSet;
     const visibleRows = new Set;
+    const mobileFits = new Map;
+    let fitObserver = null;
+    let fitTextObserver = null;
+    let fitQueued = false;
+    function runMobileFits() {
+        if (fitQueued) return;
+        fitQueued = true;
+        requestAnimationFrame(() => {
+            fitQueued = false;
+            mobileFits.forEach((fit, row) => {
+                if (!row.isConnected || !fit.el.isConnected) {
+                    mobileFits.delete(row);
+                    return;
+                }
+                if (visibleRows.has(row)) fit.apply();
+            });
+        });
+    }
+    function trackMobileFit(row, el, apply) {
+        mobileFits.set(row, { el: el, apply: apply });
+        if (typeof ResizeObserver === "function") {
+            if (!fitObserver) fitObserver = new ResizeObserver(entries => entries.forEach(entry => {
+                const rowEl = entry.target;
+                const fit = mobileFits.get(rowEl);
+                if (!rowEl.isConnected || !fit || !fit.el.isConnected) {
+                    mobileFits.delete(rowEl);
+                    fitObserver.unobserve(rowEl);
+                    return;
+                }
+                fit.apply();
+            }));
+            fitObserver.observe(row);
+        }
+        if (!fitTextObserver) {
+            fitTextObserver = new MutationObserver(runMobileFits);
+            fitTextObserver.observe(document.body, { childList: true, characterData: true, subtree: true });
+        }
+    }
     let priceBuckets = store.read(PRICE_KEY, null) || {};
     Object.keys(priceBuckets).forEach(code => {
         if (!COUNTRY_CODES.has(code)) delete priceBuckets[code];
@@ -299,9 +358,10 @@
     let prices = {};
     let expectedCount = 0;
     let serverWishlistLoaded = false;
-    let collecting = false;
+    let collecting = 0;
     let draining = false;
     let generation = 0;
+    let dataVersion = 0;
     let lastRequestAt = 0;
     let countryControls = null;
     let countdownEl = null;
@@ -315,6 +375,7 @@
             prices[key] = hit;
             if (now - hit.savedAt < PRICE_TTL) doneIds.add(key);
         });
+        dataVersion++;
     }
     const savePriceCache = debounce(() => {
         const bucket = {};
@@ -384,16 +445,15 @@
         if (countAnchor && countAnchor.isConnected && now - countScanAt < 3e3) return countAnchor;
         countScanAt = now;
         const scope = document.querySelector("#wishlist_index_content, .wishlist_content, #footer_search_results") || document.querySelector("#content") || document.body;
-        const nodes = scope.querySelectorAll("*");
         let best = null, bestScore = -Infinity, bestCount = -1, bestLength = Infinity;
-        for (let i = -1; i < nodes.length; i++) {
-            const node = i < 0 ? scope : nodes[i];
+        const consider = node => {
+            if (node.closest(OWN_SELECTOR)) return;
             const text = String(node.textContent || "").replace(/\s+/g, " ").trim();
-            if (!text || text.length > 160) continue;
+            if (!text || text.length > 160) return;
             const count = readCountFromText(text);
-            if (count == null || node.closest(OWN_SELECTOR)) continue;
+            if (count == null) return;
             const identity = `${node.id || ""} ${typeof node.className === "string" ? node.className : ""}`.toLowerCase();
-            if (COUNT_IDENTITY_SKIP.test(identity)) continue;
+            if (COUNT_IDENTITY_SKIP.test(identity)) return;
             const score = (COUNT_WISHLIST_LABEL.test(`${identity} ${text}`) ? 1e3 : 0) + (COUNT_TOTAL_LABEL.test(text) ? 100 : 0) + (node.children.length === 0 ? 10 : 0) - text.length / 1e3;
             if (score > bestScore || score === bestScore && count > bestCount || score === bestScore && count === bestCount && text.length < bestLength) {
                 best = node;
@@ -401,7 +461,9 @@
                 bestCount = count;
                 bestLength = text.length;
             }
-        }
+        };
+        consider(scope);
+        textOwners(scope, consider);
         return best;
     }
     function findCountNode() {
@@ -428,41 +490,48 @@
         const deadline = Date.now() + (mobile ? 15e3 : 3e4);
         const maxStagnant = mobile ? 3 : 5;
         const loadWait = mobile ? 500 : 700;
-        let size = wishlistIds.size, stagnant = 0;
+        let size = wishlistIds.size, stagnant = 0, exhausted = false;
         programmaticScroll = true;
         try {
             while (wishlistIds.size < expectedCount && Date.now() < deadline) {
                 if (Date.now() - lastUserScrollAt < 1500) break;
                 scroller.scrollTop = scroller.scrollHeight;
                 await sleep(loadWait);
-                harvest(document);
-                observeRows();
-                queuePrices();
+                syncRows();
                 scroller.scrollTop = startPos;
                 await sleep(120);
                 if (wishlistIds.size === size) {
-                    if (++stagnant >= maxStagnant) break;
+                    if (++stagnant >= maxStagnant) {
+                        exhausted = true;
+                        break;
+                    }
                 } else {
                     stagnant = 0;
                     size = wishlistIds.size;
                 }
                 updateCollectionProgress();
             }
+            return exhausted;
         } finally {
             scroller.scrollTop = startPos;
             programmaticScroll = false;
         }
     }
+    function syncRows() {
+        harvest(document);
+        observeRows();
+        queuePrices();
+    }
     function queuePrices() {
-        const capped = wishlistIds.size > AUTO_QUEUE_LIMIT;
-        const visibleKeys = capped ? new Set : null;
-        if (capped) visibleRows.forEach(row => {
-            const r = rowRef(row);
-            if (r) visibleKeys.add(r.key);
-        });
-        wishlistIds.forEach((item, key) => {
+        if (wishlistIds.size > AUTO_QUEUE_LIMIT) {
+            visibleRows.forEach(row => {
+                const r = rowRef(row);
+                if (!r || doneIds.has(r.key) || pendingIds.has(r.key)) return;
+                const item = wishlistIds.get(r.key);
+                if (item) pendingIds.set(r.key, item);
+            });
+        } else wishlistIds.forEach((item, key) => {
             if (doneIds.has(key) || pendingIds.has(key)) return;
-            if (visibleKeys && !visibleKeys.has(key)) return;
             pendingIds.set(key, item);
         });
         drainPrices();
@@ -502,17 +571,33 @@
                 lastRequestAt = Date.now();
                 const source = COUNTRIES[country].lowSource;
                 const useAug = source === "augmented";
-                const [ aug, steam ] = await Promise.all([ useAug ? fetchPrices(chunk, country).catch(() => ({})) : Promise.resolve({}), fetchSteamRegionPrices(chunk, country) ]);
+                const [ augRaw, steam ] = await Promise.all([
+                    useAug ? fetchPrices(chunk, country).catch(() => null) : Promise.resolve({}),
+                    fetchSteamRegionPrices(chunk, country)
+                ]);
                 if (gen !== generation) continue;
+                const ok = steam !== null;
+                const aug = augRaw || {};
                 mergeRegionPrices(aug, steam);
                 if (source === "xiaoheihe") await attachXhhLows(chunk, country, aug, gen);
                 if (gen !== generation) continue;
-                [ "app", "sub", "bundle" ].forEach(type => chunk[type].forEach(id => fetchedKeys.add(`${type}/${id}`)));
+                const keys = [];
+                [ "app", "sub", "bundle" ].forEach(type => chunk[type].forEach(id => keys.push(`${type}/${id}`)));
+                if (ok) keys.forEach(key => fetchedKeys.add(key));
+                else keys.forEach(key => {
+                    const tries = (failCount.get(key) || 0) + 1;
+                    failCount.set(key, tries);
+                    if (tries >= 2) return;
+                    doneIds.delete(key);
+                    const item = wishlistIds.get(key);
+                    if (item) pendingIds.set(key, item);
+                });
                 const now = Date.now();
                 Object.keys(aug).forEach(key => {
                     aug[key].savedAt = now;
                 });
                 Object.assign(prices, aug);
+                dataVersion++;
                 savePriceCache();
                 paintVisibleRows();
                 scheduleSummary();
@@ -522,13 +607,17 @@
             updateCollectionProgress();
         }
     }
+    let sumCache = null;
     function summarize() {
+        const sig = `${dataVersion}|${wishlistIds.size}|${fetchedKeys.size}|${fxLive ? 1 : 0}${fxTried ? 1 : 0}`;
+        if (sumCache && sumCache.sig === sig) return sumCache.value;
         let counted = 0, noLow = 0, atLow = 0, onSale = 0, missing = 0;
         let lowSum = 0, curSum = 0, saveSum = 0;
         const currencies = new Set;
         const lowNative = {}, curNative = {};
-        wishlistIds.forEach((item, key) => {
+        wishlistIds.forEach((_, key) => {
             const info = prices[key];
+            if (info && info.unreleased) return;
             if (info && info.current && info.current.free && !info.lowest) return;
             const lp = info && info.lowest && info.lowest.price;
             const cp = info && info.current && info.current.price;
@@ -557,7 +646,7 @@
             }
             if (info.current && info.current.cut > 0) onSale++;
         });
-        return {
+        const value = {
             total: wishlistIds.size,
             counted: counted,
             noLow: noLow,
@@ -572,6 +661,8 @@
             lowNative: lowNative,
             curNative: curNative
         };
+        sumCache = { sig: sig, value: value };
+        return value;
     }
     function rowsHost() {
         const firstRow = document.querySelector(ROW_SELECTOR);
@@ -604,14 +695,16 @@
         if (box.parentElement !== scroller || scroller.firstElementChild !== box) scroller.insertBefore(box, scroller.firstChild);
         return true;
     }
+    let barNode = null;
     function getSummaryBox() {
         const host = rowsHost();
-        let box = document.getElementById("shc-wishlist-summary");
-        if (box && !box.isConnected) box = null;
-        document.querySelectorAll("#shc-wishlist-summary").forEach(b => {
-            if (b !== box) b.remove();
-        });
-        if (!box) {
+        let box = barNode && barNode.isConnected ? barNode : document.getElementById("shc-wishlist-summary");
+        if (box) {
+            document.querySelectorAll("#shc-wishlist-summary").forEach(b => {
+                if (b !== box) b.remove();
+            });
+            insertSummary(box, host);
+        } else {
             box = document.createElement("div");
             box.id = "shc-wishlist-summary";
             box.className = "shc-summary";
@@ -623,12 +716,11 @@
                 if (!line.parentElement) return null;
                 line.parentElement.insertBefore(box, line.nextSibling);
             }
-        } else insertSummary(box, host);
+        }
         barNode = box;
         return box;
     }
     const scheduleSummary = debounce(renderSummary, 200);
-    let barNode = null;
     function revealBar(box) {
         box.dataset.ready = "1";
         box.style.visibility = "";
@@ -657,9 +749,12 @@
         el.innerHTML = html;
     }
     let barSurface = "";
+    let barSurfaceRow = null;
     function syncBarSurface(box) {
         const row = document.querySelector(ROW_SELECTOR);
-        const cs = row && getComputedStyle(row);
+        if (!row || row === barSurfaceRow) return;
+        barSurfaceRow = row;
+        const cs = getComputedStyle(row);
         const color = cs ? cs.backgroundColor : "";
         const image = cs && cs.backgroundImage !== "none" ? cs.backgroundImage : "";
         const solid = color && color !== "transparent" && !/^rgba\([^)]*,\s*0\s*\)$/.test(color);
@@ -676,62 +771,23 @@
         box.style.backgroundColor = solid ? color : "";
         box.style.backgroundImage = image;
     }
-    const SALE_URL = "https://steamdb.info/sales/history/";
-    const SALE_KEY = "steamHistorySales";
+    const SALE_URL = "https://partner.steamgames.com/doc/marketing/upcoming_events?l=schinese";
+    const SALE_KEY = "steamHistorySalesV6";
     const SALE_TTL = 6 * 60 * 60 * 1e3;
     const SALE_FAIL_TTL = 60 * 60 * 1e3;
-    const FALLBACK_SALES = [
-        { name: "Winter Sale 2026", start: "2026-12-17", end: "2027-01-04" },
-        { name: "Spring Sale 2027", start: "2027-03-18", end: "2027-03-25" },
-        { name: "Summer Sale 2027", start: "2027-06-24", end: "2027-07-08" }
-    ];
-    const SEASON_ZH = { winter: "❄ 冬季特卖", spring: "🌱 春季特卖", summer: "☀ 夏季特卖", autumn: "🍂 秋季特卖", fall: "🍂 秋季特卖" };
-    const MONTH_NUM = {
-        january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
-        july: 7, august: 8, september: 9, october: 10, november: 11, december: 12
-    };
-    const MONTH_NAMES = /(January|February|March|April|May|June|July|August|September|October|November|December)/i;
-    function seasonalOf(title) {
-        const m = String(title || "").match(/\b(winter|spring|summer|autumn|fall) sale\b/i);
-        return m ? SEASON_ZH[m[1].toLowerCase()] : "";
-    }
+    const SEASON_ZH = { "冬季": "❄️ 冬季特卖", "春季": "🌱 春季特卖", "夏日": "☀️ 夏季特卖", "夏季": "☀️ 夏季特卖", "秋季": "🍂 秋季特卖" };
+    const PT_FORMAT = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    });
     function pacificSaleMs(year, month, day) {
-        return Date.UTC(year, month - 1, day, month >= 3 && month <= 10 ? 17 : 18);
+        const utc = Date.UTC(year, month - 1, day, 10);
+        const parts = {};
+        PT_FORMAT.formatToParts(utc).forEach(part => parts[part.type] = part.value);
+        const localAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+        return utc + utc - localAsUtc;
     }
-    function isoDateMs(text) {
-        const m = String(text || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        return m ? pacificSaleMs(+m[1], +m[2], +m[3]) : 0;
-    }
-    function rangePairs(text) {
-        const s = String(text || "").trim();
-        let m = s.match(/^(\d{1,2})\s+([A-Za-z]+)\s*[—–-]\s*(\d{1,2})\s+([A-Za-z]+)/);
-        if (m) return [ [ +m[1], m[2] ], [ +m[3], m[4] ] ];
-        m = s.match(/^(\d{1,2})\s*[—–-]\s*(\d{1,2})\s+([A-Za-z]+)/);
-        return m ? [ [ +m[1], m[3] ], [ +m[2], m[3] ] ] : null;
-    }
-    function rangeToMs(text, now) {
-        const pairs = rangePairs(text);
-        if (!pairs) return null;
-        const startMonth = MONTH_NUM[pairs[0][1].toLowerCase()];
-        const endMonth = MONTH_NUM[pairs[1][1].toLowerCase()];
-        if (!startMonth || !endMonth) return null;
-        let year = new Date(now).getUTCFullYear();
-        if (pacificSaleMs(year, endMonth, pairs[1][0]) <= now) year++;
-        const startYear = startMonth > endMonth ? year - 1 : year;
-        return {
-            start: pacificSaleMs(startYear, startMonth, pairs[0][0]),
-            end: pacificSaleMs(year, endMonth, pairs[1][0])
-        };
-    }
-    function dateRangeText(panel) {
-        for (const div of panel.querySelectorAll(".panel-body div")) {
-            const text = (div.textContent || "").trim();
-            if (/^\d{1,2}(\s+[A-Za-z]+)?\s*[—–-]/.test(text) && MONTH_NAMES.test(text)) return text;
-        }
-        return "";
-    }
-    function salesFromSteamDb(html) {
-        const now = Date.now();
+    function salesFromSteamworks(html) {
         const out = [];
         let doc;
         try {
@@ -739,33 +795,21 @@
         } catch {
             return out;
         }
-        doc.querySelectorAll(".panel-sale").forEach(panel => {
-            const link = panel.querySelector(".panel-sale-name a");
-            const label = seasonalOf(link ? link.textContent : "");
-            if (!label) return;
-            const rel = panel.querySelector("relative-time[datetime], .future-sale-time[datetime]");
-            if (!rel && !panel.querySelector(".live-sale-badge")) return;
-            const range = rangeToMs(dateRangeText(panel), now);
-            if (!range || range.end <= now) return;
-            const titleYear = Number(((link.textContent || "").match(/\d{4}/) || [])[0]);
-            if (titleYear && new Date(range.start).getUTCFullYear() !== titleYear) return;
-            const attr = rel ? (rel.getAttribute("datetime") || "").trim() : "";
-            const exact = /\d{2}:\d{2}/.test(attr) ? Date.parse(attr) : NaN;
+        doc.querySelectorAll(".documentation_bbcode h2.bb_subsection").forEach(heading => {
+            const title = heading.querySelector("strong");
+            const season = title && (title.textContent || "").match(/(冬季|春季|夏日|夏季|秋季)特卖/);
+            if (!season) return;
+            const m = (heading.textContent || "").replace(/\s+/g, " ").match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[-—–]\s*(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+            if (!m) return;
+            const endMs = pacificSaleMs(+m[4] || +m[1], +m[5], +m[6]);
+            if (endMs <= Date.now()) return;
             out.push({
-                label: label,
-                startMs: isNaN(exact) ? range.start : exact,
-                endMs: range.end
+                label: SEASON_ZH[season[1]],
+                startMs: pacificSaleMs(+m[1], +m[2], +m[3]),
+                endMs: endMs
             });
         });
         return out;
-    }
-    function fallbackSales() {
-        const now = Date.now();
-        return FALLBACK_SALES.map(s => ({
-            label: seasonalOf(s.name),
-            startMs: isoDateMs(s.start),
-            endMs: isoDateMs(s.end)
-        })).filter(s => s.label && s.endMs > now);
     }
     function cachedSales() {
         const hit = store.read(SALE_KEY, v => v && v.ok ? SALE_TTL : SALE_FAIL_TTL);
@@ -775,14 +819,10 @@
         const cached = cachedSales();
         if (cached.length) return Promise.resolve(cached);
         const finish = (sales, ok) => {
-            if (!sales.length) {
-                sales = fallbackSales();
-                ok = false;
-            }
             store.write(SALE_KEY, { sales: sales, ok: ok });
             return sales;
         };
-        return request({ url: SALE_URL }).then(html => finish(salesFromSteamDb(html), true)).catch(() => finish([], false));
+        return request({ url: SALE_URL }).then(html => finish(salesFromSteamworks(html), true)).catch(() => finish([], false));
     }
     function pickSale(sales) {
         const now = Date.now();
@@ -820,7 +860,7 @@
         cdSignature = `${sale.label}|${sale.startMs}|${sale.endMs}`;
         add("shc-cd-name", `${sale.label} `);
         add("shc-cd-date", `${cnDate(sale.startMs)} — ${cnDate(sale.endMs)} `);
-        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? "距结束" : "距开始") };
+        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? "距结束还有" : "距开始还有") };
         countdownEl.appendChild(document.createTextNode(" "));
         cdNodes.days = num();
         add("shc-cd-unit", " 天 ");
@@ -840,7 +880,7 @@
         if (cdSignature !== `${sale.label}|${sale.startMs}|${sale.endMs}`) buildCountdown(sale, now);
         const live = saleIsLive(sale, now);
         const left = Math.floor(((live ? sale.endMs : sale.startMs) - now) / 6e4);
-        writeText(cdNodes.state, live ? "距结束" : "距开始");
+        writeText(cdNodes.state, live ? "距结束还有" : "距开始还有");
         writeText(cdNodes.days, String(Math.floor(left / 1440)));
         writeText(cdNodes.hours, String(Math.floor(left % 1440 / 60)));
         writeText(cdNodes.mins, String(left % 60));
@@ -903,19 +943,19 @@
         const idsComplete = serverWishlistLoaded || (expectedCount > 0 ? wishlistIds.size >= expectedCount : true);
         const allAttempted = wishlistIds.size > 0 && doneIds.size >= wishlistIds.size;
         const busy = working || !idsComplete || !allAttempted;
-        setProgress(busy ? `已加载 ${loaded} 项` : "已加载完成", busy);
+        setProgress(busy ? `已加载 ${loaded} 项` : "返回顶部", busy);
     }
     async function startCollection() {
-        if (collecting) return;
-        collecting = true;
+        const run = generation;
+        collecting++;
         serverWishlistLoaded = false;
         try {
-            harvest(document);
-            observeRows();
+            syncRows();
             renderSummary();
             const serverRequest = fetchWishlistItems();
             queuePrices();
             const serverItems = await serverRequest;
+            if (run !== generation) return;
             if (serverItems) {
                 const serverKeys = new Set(serverItems.map(item => item.key));
                 if ([ ...wishlistIds.keys() ].every(key => serverKeys.has(key))) {
@@ -929,10 +969,11 @@
             renderSummary();
             if (!serverWishlistLoaded && expectedCount && wishlistIds.size < expectedCount) {
                 updateCollectionProgress();
-                await harvestByScroll();
+                const exhausted = await harvestByScroll();
+                if (exhausted && !serverWishlistLoaded) expectedCount = wishlistIds.size;
             }
         } finally {
-            collecting = false;
+            collecting = Math.max(0, collecting - 1);
             renderSummary();
         }
     }
@@ -943,19 +984,36 @@
         if (!/[\d.,]/.test(t)) return false;
         return /\p{Sc}/u.test(t) || /(?:USD|CNY|INR|EUR|GBP|RUB|BRL|PLN|KRW|TWD|SGD|MXN|AUD|CAD|HKD|TRY|ARS)\b/.test(t);
     }
-    function priceLeaf(row) {
-        const rect = row.getBoundingClientRect();
+    function textOwners(scope, fn) {
+        const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+        const seen = new Set;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (!node.nodeValue.trim()) continue;
+            const el = node.parentElement;
+            if (el && !seen.has(el)) {
+                seen.add(el);
+                fn(el);
+            }
+        }
+    }
+    function findPriceLeaf(scope, bottomSide) {
+        const rect = scope.getBoundingClientRect();
         const minLeft = rect.left + rect.width * .4;
-        let best = null, bestLeft = Infinity;
-        row.querySelectorAll("*").forEach(node => {
-            if (node.closest(".game_lowest_price")) return;
+        let best = null, mark = bottomSide ? -Infinity : Infinity;
+        textOwners(scope, node => {
+            if (bottomSide ? node.children.length : node.closest(".shc-price")) return;
             if (!isPriceText(node.textContent)) return;
-            for (const child of node.children) if (isPriceText(child.textContent)) return;
+            if (!bottomSide) for (const child of node.children) if (isPriceText(child.textContent)) return;
             const r = node.getBoundingClientRect();
-            if (r.width === 0 || r.left < minLeft) return;
-            if (r.left < bestLeft) {
+            if (!r.width || !r.height) return;
+            if (bottomSide) {
+                if (r.bottom > mark) {
+                    best = node;
+                    mark = r.bottom;
+                }
+            } else if (r.left >= minLeft && r.left < mark) {
                 best = node;
-                bestLeft = r.left;
+                mark = r.left;
             }
         });
         return best;
@@ -1010,17 +1068,7 @@
         return best || link;
     }
     function currentPriceLeaf(item) {
-        let best = null, bestBottom = -Infinity;
-        item.querySelectorAll("*").forEach(node => {
-            if (node.children.length || !isPriceText(node.textContent)) return;
-            const r = node.getBoundingClientRect();
-            if (!r.width || !r.height) return;
-            if (r.bottom > bestBottom) {
-                best = node;
-                bestBottom = r.bottom;
-            }
-        });
-        return best;
+        return findPriceLeaf(item, true);
     }
     let measureCtx = null;
     function alignToPriceLine(el, leaf, box) {
@@ -1066,11 +1114,12 @@
         }
         return null;
     }
-    function insertPriceLine(row, link, info) {
-        const el = createPriceElement(info);
+    function insertPriceLine(row, link, info, state) {
+        const el = createPriceElement(info, state);
+        el.dataset.sig = state === "price" ? priceSignature(info) : state;
         const anchor = titleLinkOf(row, link);
         const host = rowHost(row, anchor);
-        const leaf = priceLeaf(row);
+        const leaf = findPriceLeaf(row, false);
         const item = leaf && priceRowItem(row, leaf);
         if (isMobileUI()) {
             const card = cardGridOf(row, leaf || item || anchor);
@@ -1124,19 +1173,7 @@
                     centerOnNative();
                 };
                 applyInline();
-                const mo = new MutationObserver(() => {
-                    if (!el.isConnected) return mo.disconnect();
-                    applyInline();
-                });
-                mo.observe(native, { childList: true, characterData: true, subtree: true });
-                if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => el.isConnected && applyInline());
-                if (native && typeof ResizeObserver === "function") {
-                    const ro = new ResizeObserver(() => {
-                        if (!el.isConnected) return ro.disconnect();
-                        applyInline();
-                    });
-                    ro.observe(native);
-                }
+                trackMobileFit(row, el, applyInline);
                 return;
             }
             host.appendChild(el);
@@ -1157,15 +1194,16 @@
         if (host === row) fallbackIntoRow(el, row, anchor);
         host.appendChild(el);
     }
-    function createPriceElement(info) {
+    function createPriceElement(info, state) {
         const div = document.createElement("div");
-        if (info.locked) {
-            div.className = `game_lowest_price locked${isMobileUI() ? " compact" : ""}`;
+        const compact = isMobileUI() ? " compact" : "";
+        if (state === "locked") {
+            div.className = `shc-price locked${compact}`;
             div.textContent = "锁区";
             return div;
         }
         const atLow = isAtHistoricalLow(info.lowest, info.current);
-        div.className = `game_lowest_price${isMobileUI() ? " compact" : ""}${atLow ? " at-low" : ""}`;
+        div.className = `shc-price${compact}${atLow ? " at-low" : ""}`;
         const line = (cls, label, entry) => {
             if (!entry || !entry.price) return "";
             const cut = Number(entry.cut) > 0 ? `-${entry.cut}%` : "";
@@ -1174,6 +1212,17 @@
         div.innerHTML = line("shc-mobile-lowline", "史低", info.lowest) + line("shc-mobile-currentline", "当前", info.current);
         return div;
     }
+    function priceSignature(info) {
+        const part = entry => entry && entry.price ? `${entry.price.amount}|${entry.price.currency}|${entry.cut || 0}` : "";
+        return `${part(info.lowest)}|${part(info.current)}`;
+    }
+    function rowState(info) {
+        if (info && info.unreleased) return "unreleased";
+        if (info && info.current && info.current.free && !info.lowest) return "free";
+        if (info && info.regionLocked) return "locked";
+        if (hasAnyPrice(info)) return "price";
+        return "";
+    }
     function paintRow(row) {
         if (!row.isConnected) {
             visibleRows.delete(row);
@@ -1181,23 +1230,30 @@
         }
         const link = rowLink(row);
         const r = link && keyOfHref(link.href);
-        const info = r && prices[r.key];
-        const freeOnly = info && info.current && info.current.free && !info.lowest;
-        const existing = row.querySelector(".game_lowest_price");
+        if (!r) return;
+        const info = prices[r.key];
+        const state = rowState(info);
+        const existing = row.querySelector(".shc-price");
+        if (!state || state === "free" || state === "unreleased") {
+            if (existing) existing.remove();
+            return;
+        }
+        const sig = state === "price" ? priceSignature(info) : state;
+        if (existing && existing.dataset.sig === sig) return;
         if (existing) {
-            if (freeOnly) {
-                existing.remove();
-                return;
-            }
-            if (!existing.classList.contains("locked") || !hasAnyPrice(info)) return;
+            mobileFits.delete(row);
             existing.remove();
         }
-        if (freeOnly) return;
-        if (hasAnyPrice(info)) insertPriceLine(row, link, info);
-        else if (r && fetchedKeys.has(r.key)) insertPriceLine(row, link, { locked: true });
+        insertPriceLine(row, link, info, state);
     }
+    let paintQueued = false;
     function paintVisibleRows() {
-        visibleRows.forEach(row => paintRow(row));
+        if (paintQueued) return;
+        paintQueued = true;
+        requestAnimationFrame(() => {
+            paintQueued = false;
+            visibleRows.forEach(row => paintRow(row));
+        });
     }
     const rowObserver = new IntersectionObserver(entries => {
         entries.forEach(e => {
@@ -1217,7 +1273,7 @@
     }
     function setProgress(text, loading = true) {
         const div = getProgressDiv();
-        const label = div.querySelector(".wishlist-progress-text");
+        const label = div.querySelector(".shc-wishlist-progress-text");
         if (label && label.textContent !== text) label.textContent = text;
         div.classList.toggle("loading", loading);
         div.classList.add("show");
@@ -1237,7 +1293,7 @@
         window.scrollTo(options);
     }
     function getProgressDiv() {
-        const all = document.querySelectorAll("#wishlist-progress");
+        const all = document.querySelectorAll("#shc-wishlist-progress");
         if (all.length) {
             all.forEach((el, i) => {
                 if (i) el.remove();
@@ -1245,15 +1301,15 @@
             return all[0];
         }
         const div = document.createElement("div");
-        div.id = "wishlist-progress";
+        div.id = "shc-wishlist-progress";
         div.title = "点击返回页面顶部";
         div.setAttribute("role", "button");
         div.tabIndex = 0;
         const icon = document.createElement("span");
-        icon.className = "wishlist-progress-icon";
+        icon.className = "shc-wishlist-progress-icon";
         icon.textContent = "⏳";
         const label = document.createElement("span");
-        label.className = "wishlist-progress-text";
+        label.className = "shc-wishlist-progress-text";
         div.append(icon, label);
         const toTop = event => {
             event.preventDefault();
@@ -1273,10 +1329,12 @@
         pendingIds.clear();
         doneIds.clear();
         fetchedKeys.clear();
+        failCount.clear();
         expectedCount = 0;
         serverWishlistLoaded = false;
         loadPriceCache();
-        document.querySelectorAll(".game_lowest_price").forEach(e => e.remove());
+        mobileFits.clear();
+        document.querySelectorAll(".shc-price").forEach(e => e.remove());
         paintVisibleRows();
         startCollection();
     }
@@ -1294,7 +1352,8 @@
         document.documentElement.classList.toggle("shc-mobile", mobile);
         if (mobile === lastMobile) return;
         lastMobile = mobile;
-        document.querySelectorAll(".game_lowest_price").forEach(e => e.remove());
+        mobileFits.clear();
+        document.querySelectorAll(".shc-price").forEach(e => e.remove());
         paintVisibleRows();
         renderSummary();
     }
@@ -1306,14 +1365,14 @@
         if (isOwnNode(r.target)) return true;
         return r.type === "childList" && r.addedNodes.length > 0 && r.removedNodes.length === 0 && [ ...r.addedNodes ].every(isOwnNode);
     }
-    function initWishlist() {
+    function initWishlist(retry = 0) {
         if (document.querySelectorAll(ROW_SELECTOR).length === 0) {
-            setTimeout(initWishlist, 500);
+            if (retry < 20) setTimeout(() => initWishlist(retry + 1), 500);
             return;
         }
         if (!countryControls) {
             countryControls = document.createElement("div");
-            countryControls.id = "wishlist-country-controls";
+            countryControls.id = "shc-country-controls";
             countdownEl = document.createElement("span");
             countdownEl.id = "shc-sale-countdown";
             countdownEl.style.display = "none";
@@ -1326,12 +1385,13 @@
         applyViewportMode();
         window.addEventListener("resize", debounce(applyViewportMode, 250));
         ensureRates().then(scheduleSummary);
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(runMobileFits);
         startCollection();
         startCountdown();
         new MutationObserver(records => {
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
             if (records.some(r => !isOwnRecord(r))) scheduleHarvest();
-        }).observe(document.body, { childList: true, characterData: true, subtree: true });
+        }).observe(document.body, { childList: true, subtree: true });
     }
     GM_addStyle(`
         .shc-cc { position: relative; display: inline-flex; }
@@ -1343,13 +1403,13 @@
         .shc-cc-btn .caret { font-size: .68em; opacity: .6; }
         .shc-cc select { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
             border: 0; opacity: 0; appearance: none; -webkit-appearance: none; cursor: pointer; }
-        .game_lowest_price { word-break: break-word; font-size: 11px; color: #ddd; margin-top: 5px; display: block; width: 100%; box-sizing: border-box; padding-left: 5px; }
-        .game_lowest_price .shc-mobile-lowline, .game_lowest_price .shc-mobile-currentline { display: block; }
-        .game_lowest_price .shc-discount { color: #a5cb00; font-weight: bold; }
-        .game_lowest_price.at-low { color: #4a9eff; font-weight: bold; }
-        .game_lowest_price.at-low .shc-discount { color: #4a9eff; }
-        .game_lowest_price.locked { color: #e74c3c; font-weight: bold; }
-        .game_lowest_price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto; display: block; padding-left: 5px;
+        .shc-price { word-break: break-word; font-size: 11px; color: #ddd; margin-top: 5px; display: block; width: 100%; box-sizing: border-box; padding-left: 5px; }
+        .shc-price .shc-mobile-lowline, .shc-price .shc-mobile-currentline { display: block; }
+        .shc-price .shc-discount { color: #a5cb00; font-weight: bold; }
+        .shc-price.at-low { color: #4a9eff; font-weight: bold; }
+        .shc-price.at-low .shc-discount { color: #4a9eff; }
+        .shc-price.locked { color: #e74c3c; font-weight: bold; }
+        .shc-price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto; display: block; padding-left: 5px;
             text-align: left; margin: 0 clamp(6px, 1vw, 14px) 0 0; line-height: 1.5; }
         .shc-summary { display: flex; align-items: center; flex-wrap: wrap;
             box-sizing: border-box; width: 100%; min-width: 0; gap: clamp(6px, 1.1vw, 12px);
@@ -1357,50 +1417,45 @@
             background: #132434; border: 1px solid rgba(255,255,255,.08); border-radius: 4px;
             font-size: 12px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
             -webkit-user-select: text; user-select: text; position: sticky; top: 0; z-index: 900; }
-        .shc-summary .count { color: #8b929a; font-size: .9em; }
-        .shc-summary .label { color: #8b929a; font-size: .9em; }
-        .shc-summary .main { font-size: 1.0em; color: #66c0f4; }
-        .shc-summary .cur { color: #fff; font-size: 1.0em; }
-        .shc-summary .dim { color: #8b929a; font-size: .9em; }
-        .shc-summary .save { color: #a5cb00; font-size: .9em; }
-        .shc-summary .warn { color: #ffc53d; font-size: .9em; }
-        .shc-summary button { background: rgba(163,186,211,.2); color: #f7f8f8; border: 0;
-            border-radius: 2px; padding: 1px 8px; min-height: 1.5em; font-size: .9em; cursor: pointer; }
-        .shc-summary button:hover { background: rgba(163,186,211,.35); }
+        .shc-summary .count, .shc-summary .label, .shc-summary .dim,
+        .shc-summary .save, .shc-summary .warn { font-size: .9em; }
+        .shc-summary .count, .shc-summary .label, .shc-summary .dim { color: #8b929a; }
+        .shc-summary .main { color: #66c0f4; }
+        .shc-summary .cur { color: #fff; }
+        .shc-summary .save { color: #a5cb00; }
+        .shc-summary .warn { color: #ffc53d; }
         .shc-summary-body { display: contents; min-width: 0; }
-        #wishlist-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
+        #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
             flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
         #shc-sale-countdown { font-size: 1em; white-space: nowrap; line-height: 1.25; }
         #shc-sale-countdown .shc-cd-date { color: #66c0f4; }
         #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; }
         #shc-sale-countdown .shc-cd-num { color: #8b5cf6; }
-        #wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 10px);
-            z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 21px;
+        #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 25px);
+            z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 24px;
             background: rgba(23,29,37,.70); border: 1px solid rgba(255,255,255,.12); border-radius: 5px;
             cursor: pointer; align-items: center; justify-content: center; gap: 3px; padding: 2px 6px;
             font-size: 11px; line-height: 1.3; color: #acb2b8; display: none; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
-        #wishlist-progress.show { display: flex; }
-        #wishlist-progress:hover { background: rgba(23,29,37,.88); border-color: rgba(255,255,255,.24); }
-        #wishlist-progress .wishlist-progress-icon { display: inline-block; flex: 0 0 auto; font-size: .9em; }
-        #wishlist-progress .wishlist-progress-text { min-width: 0; }
-        #wishlist-progress.loading .wishlist-progress-icon { animation: shc-funnel-spin 2s linear infinite; }
+        #shc-wishlist-progress.show { display: flex; }
+        #shc-wishlist-progress:hover { background: rgba(23,29,37,.88); border-color: rgba(255,255,255,.24); }
+        #shc-wishlist-progress .shc-wishlist-progress-icon { display: inline-block; flex: 0 0 auto; font-size: .9em; }
+        #shc-wishlist-progress .shc-wishlist-progress-text { min-width: 0; }
+        #shc-wishlist-progress.loading .shc-wishlist-progress-icon { animation: shc-funnel-spin 2s linear infinite; }
         @keyframes shc-funnel-spin { to { transform: rotate(360deg); } }
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; }
-        .shc-mobile .shc-summary button { min-height: 30px; padding: 0 12px; font-size: 14px; }
-        .shc-mobile .shc-summary .shc-cc-btn { min-height: 22px; padding: 2px 8px; font-size: 12px; }
-        .shc-mobile .game_lowest_price.compact { margin-top: 2px; line-height: 1.35;
+        .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
             font-size: 12px; width: 100%; max-width: 100%; min-width: 0;
             white-space: normal; overflow-wrap: anywhere; }
-        .shc-mobile .game_lowest_price.compact .shc-mobile-lowline,
-        .shc-mobile .game_lowest_price.compact .shc-mobile-currentline { display: block; line-height: inherit; }
-        .shc-mobile .game_lowest_price.compact .shc-mobile-lowline { white-space: normal; }
-        .shc-mobile .game_lowest_price.compact.purchase-inline { font-size: 11px; line-height: 1.2;
+        .shc-mobile .shc-price.compact .shc-mobile-lowline,
+        .shc-mobile .shc-price.compact .shc-mobile-currentline { display: block; line-height: inherit; }
+        .shc-mobile .shc-price.compact .shc-mobile-lowline { white-space: normal; }
+        .shc-mobile .shc-price.compact.purchase-inline { font-size: 11px; line-height: 1.2;
             white-space: nowrap; overflow: visible; display: flex; flex-direction: column;
             justify-content: center; gap: 1px; }
-        .shc-mobile .game_lowest_price.compact.purchase-inline .shc-mobile-lowline,
-        .shc-mobile .game_lowest_price.compact.purchase-inline .shc-mobile-currentline { white-space: nowrap; }
-        .shc-mobile .game_lowest_price.compact.purchase-inline.tight .shc-discount { display: none; }
+        .shc-mobile .shc-price.compact.purchase-inline .shc-mobile-lowline,
+        .shc-mobile .shc-price.compact.purchase-inline .shc-mobile-currentline { white-space: nowrap; }
+        .shc-mobile .shc-price.compact.purchase-inline.tight .shc-discount { display: none; }
     `);
     initWishlist();
 })();
