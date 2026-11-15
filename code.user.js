@@ -3,9 +3,7 @@
 // @name:zh-CN  Steam愿望单增强
 // @name:en     Steam Wishlist Enhancer
 // @namespace   https://github.com/beerleexc
-// @description Steam愿望单价格、史低、合计与四季促销倒计时，界面自动跟随 Steam 或浏览器语言。/ Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists, with automatic Chinese/English UI.
-// @description:zh-CN 仅适用于Steam愿望单：可切换中、美、印、印尼、乌、俄、独联体（阿塞拜疆）、阿、土、日查询价格与史低，汇总全清单价格并显示大促倒计时；中/美/印/印尼/日史低取自 ITAD，乌/俄/独联体/阿/土取自小黑盒（仅 app）
-// @description:en Enhances Steam wishlists with regional current and historical-low prices, wishlist totals, and seasonal sale countdowns. Historical lows for CN/US/IN/ID/JP come from ITAD; UA/RU/CIS/AR/TR use Xiaoheihe (apps only).
+// @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
 // @version     1.3.0
