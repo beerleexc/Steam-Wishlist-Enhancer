@@ -1,17 +1,16 @@
 // ==UserScript==
 // @name        Steam愿望单增强
 // @namespace   SteamwishlistEnhacne
-// @description 仅适用于Steam愿望单：可切换中、日、美、阿根廷四地查询史低，汇总全清单价格并显示大促倒计时
+// @description 仅适用于Steam愿望单：可切换中、印、美、乌克兰四地查询价格与史低，汇总全清单价格并显示大促倒计时；乌克兰无分区史低数据源，仅显示现价
 // @author      beerlee
 // @license     GPL version 3 or any later version
-// @version     1.00
+// @version     1.01
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
 // @grant       GM_getValue
 // @grant       GM_addStyle
 // @connect     api.augmentedsteam.com
-// @connect     api.isthereanydeal.com
 // @connect     api.steampowered.com
 // @connect     open.er-api.com
 // @connect     store.steampowered.com
@@ -25,38 +24,34 @@
             name: "🇨🇳 中国",
             currency: "CNY"
         },
-        jp: {
-            name: "🇯🇵 日本",
-            currency: "JPY"
-        },
-        ar: {
-            name: "🇦🇷 阿根廷",
-            currency: "USD"
+        in: {
+            name: "🇮🇳 印度",
+            currency: "INR"
         },
         us: {
             name: "🇺🇸 美国",
             currency: "USD"
+        },
+        ua: {
+            name: "🇺🇦 乌克兰",
+            currency: "UAH"
         }
     };
     const COUNTRY_CODES = new Set(Object.keys(COUNTRIES).map(c => c.toUpperCase()));
-    const LEGACY_PINNED = {
-        ARS: "USD",
-    };
     const CURRENCY_SYMBOLS = {
         CNY: "¥",
-        JPY: "¥",
-        USD: "$"
+        INR: "₹",
+        USD: "$",
+        UAH: "₴"
     };
-    const ZERO_DECIMAL = new Set([ "JPY" ]);
     const FALLBACK_TO_CNY = {
-        JPY: .0418,
-        ARS: .00433,
+        INR: .0709,
+        UAH: .1471,
         USD: 6.685
     };
-    const STORE_VERSION = "v2";
+    const STORE_VERSION = "v3";
     const MIN_REQUEST_GAP = 1200;
     const CHUNK_SIZE = 50;
-    const ITAD_BATCH = 50;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
     const debounce = (fn, ms) => {
         let timer = null;
@@ -145,7 +140,7 @@
     const formatPrice = (amount, currency) => {
         if (amount == null || isNaN(amount)) return "?";
         const sym = CURRENCY_SYMBOLS[currency] || currency;
-        return ZERO_DECIMAL.has(currency) ? sym + Math.round(amount) : sym + amount.toFixed(2);
+        return sym + amount.toFixed(2);
     };
     const formatCut = cut => Number(cut) > 0 ? `-${cut}%` : "";
     const toBaseCNY = (amount, currency) => {
@@ -168,28 +163,6 @@
     }
     let currentCountry = GM_getValue("steamHistoryCountry", "cn");
     if (!COUNTRIES[currentCountry]) currentCountry = "cn";
-    function normalizeCurrency(price) {
-        if (!price || !price.amount) return price;
-        const target = LEGACY_PINNED[price.currency];
-        const declared = COUNTRIES[currentCountry].currency;
-        if (!target || target !== declared) return price;
-        const rate = cnyPerUnit(price.currency) / cnyPerUnit(declared);
-        return rate > 0 ? {
-            amount: price.amount * rate,
-            currency: declared
-        } : price;
-    }
-    function normalizeBatch(prices) {
-        Object.keys(prices).forEach(key => {
-            const info = prices[key];
-            [ "lowest", "current" ].forEach(field => {
-                if (!info[field]) return;
-                info[field].price = normalizeCurrency(info[field].price);
-                if (info[field].regular) info[field].regular = normalizeCurrency(info[field].regular);
-            });
-        });
-        return prices;
-    }
     function isMobileUI() {
         const w = window.innerWidth || document.documentElement && document.documentElement.clientWidth || 0;
         const coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
@@ -273,7 +246,6 @@
     }
     const REGION_CAP_KEY = "steamHistoryRegionCaps";
     const REGION_CAP_TTL = 7 * 24 * 60 * 60 * 1e3;
-    const REGIONS_USE_HISTORY = new Set([ "AR" ]);
     let regionCaps = null;
     const getRegionCaps = () => regionCaps || (regionCaps = store.read(REGION_CAP_KEY, REGION_CAP_TTL) || {});
     const saveRegionCaps = () => store.write(REGION_CAP_KEY, regionCaps);
@@ -286,14 +258,10 @@
         saveRegionCaps();
     };
     const augmentedHasLocalLowest = code => {
+        if (code === "US") return true;
         const cap = getRegionCap(code);
         return cap.augmentedProbed ? !!cap.augmentedHasLocalLowest : null;
     };
-    const itadStorelowHasLocalLowest = code => {
-        const cap = getRegionCap(code);
-        return cap.itadStorelowProbed ? !!cap.itadStorelowHasLocalLowest : null;
-    };
-    const shouldUseHistory = code => REGIONS_USE_HISTORY.has(code);
     function pickSampleItem() {
         const sampleKey = Object.keys(prices).find(k => prices[k] && prices[k].current);
         if (sampleKey) {
@@ -313,6 +281,7 @@
     }
     async function probeAugmentedRegion(country) {
         const code = country.toUpperCase();
+        if (code === "US") return;
         const cap = getRegionCap(code);
         if (cap.augmentedProbed) return;
         const sample = pickSampleItem();
@@ -333,35 +302,13 @@
             augmentedHasLocalLowest: !same
         });
     }
-    async function probeItadStorelowRegion(country) {
-        const code = country.toUpperCase();
-        const cap = getRegionCap(code);
-        if (cap.itadStorelowProbed) return;
-        const sample = pickSampleItem();
-        if (!sample) return;
-        const idMap = await resolveItadIds([ sample.key ]);
-        const uuid = idMap[sample.key];
-        if (!uuid) return;
-        const [regionData, usData] = await Promise.all([ itadPost(ITAD_STORELOW_URL + "?country=" + encodeURIComponent(code) + "&shops=61", [ uuid ]).catch(() => null), itadPost(ITAD_STORELOW_URL + "?country=US&shops=61", [ uuid ]).catch(() => null) ]);
-        const findSteam = data => {
-            if (!Array.isArray(data)) return null;
-            const item = data.find(d => d && d.id === uuid);
-            if (!item) return null;
-            const l = (item.lows || []).find(x => x && x.shop && Number(x.shop.id) === 61 && x.price);
-            return l ? l.price : null;
-        };
-        const rLow = findSteam(regionData);
-        const uLow = findSteam(usData);
-        if (!rLow || !uLow) return;
-        const same = rLow.currency === uLow.currency && Math.abs(rLow.amount - uLow.amount) < .01;
-        setRegionCap(code, {
-            itadStorelowProbed: true,
-            itadStorelowHasLocalLowest: !same
-        });
-    }
     function mergeRegionPrices(aug, steam) {
-        const code = currentCountry.toUpperCase();
-        const hasLocal = augmentedHasLocalLowest(code);
+        const hasLocal = augmentedHasLocalLowest(currentCountry.toUpperCase());
+        if (hasLocal === false) Object.keys(aug).forEach(key => {
+            delete aug[key].lowest;
+            if (!steam) delete aug[key].current;
+        });
+        if (!steam) return aug;
         Object.keys(aug).forEach(key => {
             if (!(key in steam)) {
                 delete aug[key].current;
@@ -370,219 +317,12 @@
         });
         Object.keys(steam).forEach(key => {
             const entry = aug[key] || (aug[key] = {});
-            if (hasLocal === false) {
-                delete entry.lowest;
-            } else if (hasLocal === null) {
+            if (hasLocal === null) {
                 if (!trustsAugmented(entry, steam[key].price)) delete entry.lowest;
             }
             entry.current = steam[key];
         });
         return aug;
-    }
-    const ITAD_KEY_DEFAULT = "e7b43126ad0f4dde449fa6855d0cec11cf92ed55";
-    const ITAD_LOOKUP_URL = "https://api.isthereanydeal.com/lookup/id/shop/61/v1";
-    const ITAD_STORELOW_URL = "https://api.isthereanydeal.com/games/storelow/v2";
-    const ITAD_HISTORY_URL = "https://api.isthereanydeal.com/games/history/v2";
-    const ITAD_IDS_KEY = "steamHistoryItadIds";
-    const ITAD_IDS_TTL = 30 * 24 * 60 * 60 * 1e3;
-    const ITAD_LOWS_KEY = "steamHistoryItadLows";
-    const ITAD_LOWS_TTL = 60 * 60 * 1e3;
-    const ITAD_HISTORY_KEY = "steamHistoryItadHistory";
-    const ITAD_HISTORY_TTL = 30 * 24 * 60 * 60 * 1e3;
-    const ITAD_HISTORY_GAP = 150;
-    const itadKey = () => (GM_getValue("steamHistoryItadKey", "") || "").trim() || ITAD_KEY_DEFAULT;
-    const itadMiss = new Set;
-    let itadIds = null;
-    let itadLows = null;
-    let itadHistory = null;
-    let itadNotice = null;
-    const itadIdMap = () => itadIds || (itadIds = store.read(ITAD_IDS_KEY, ITAD_IDS_TTL) || {});
-    const itadLowBucket = code => {
-        const all = itadLows || (itadLows = store.read(ITAD_LOWS_KEY, null) || {});
-        return all[code] || (all[code] = {});
-    };
-    const itadHistoryBucket = code => {
-        const all = itadHistory || (itadHistory = store.read(ITAD_HISTORY_KEY, null) || {});
-        return all[code] || (all[code] = {});
-    };
-    function itadPost(url, body) {
-        return postJSON(url, body, {
-            "ITAD-API-Key": itadKey()
-        }).then(d => {
-            itadNotice = null;
-            return d;
-        }).catch(e => {
-            if (e.status === 401 || e.status === 403) itadNotice = "ITAD API Key 无效或无权限"; else if (e.status === 429) itadNotice = "ITAD 请求已达限额，请稍后再试";
-            return null;
-        });
-    }
-    function itadGet(url) {
-        return getJSON({
-            url: url,
-            headers: {
-                "ITAD-API-Key": itadKey()
-            }
-        }).then(d => {
-            itadNotice = null;
-            return d;
-        }).catch(e => {
-            if (e.status === 401 || e.status === 403) itadNotice = "ITAD API Key 无效或无权限"; else if (e.status === 429) itadNotice = "ITAD 请求已达限额，请稍后再试";
-            return null;
-        });
-    }
-    async function resolveItadIds(keys) {
-        const cache = itadIdMap();
-        const out = {};
-        const need = [];
-        keys.forEach(k => {
-            if (cache[k]) out[k] = cache[k]; else if (!itadMiss.has(k)) need.push(k);
-        });
-        for (let i = 0; i < need.length; i += ITAD_BATCH) {
-            const chunk = need.slice(i, i + ITAD_BATCH);
-            const res = await itadPost(ITAD_LOOKUP_URL, chunk);
-            let changed = false;
-            chunk.forEach(k => {
-                const uuid = res && res[k];
-                if (uuid) {
-                    cache[k] = uuid;
-                    out[k] = uuid;
-                    changed = true;
-                } else itadMiss.add(k);
-            });
-            if (changed) store.write(ITAD_IDS_KEY, cache);
-            if (i + ITAD_BATCH < need.length) await sleep(MIN_REQUEST_GAP);
-        }
-        return out;
-    }
-    async function itadSteamLows(uuids, country) {
-        if (!uuids.length) return {};
-        const code = country.toUpperCase();
-        const bucket = itadLowBucket(code);
-        const out = {};
-        const need = [];
-        uuids.forEach(uuid => {
-            const hit = bucket[uuid];
-            if (hit && Date.now() - hit.savedAt < ITAD_LOWS_TTL) out[uuid] = hit.value; else need.push(uuid);
-        });
-        for (let i = 0; i < need.length; i += ITAD_BATCH) {
-            const chunk = need.slice(i, i + ITAD_BATCH);
-            const data = await itadPost(ITAD_STORELOW_URL + "?country=" + encodeURIComponent(code) + "&shops=61", chunk);
-            if (!Array.isArray(data)) continue;
-            const now = Date.now();
-            const seen = Object.create(null);
-            data.forEach(item => {
-                if (!item || !item.id) return;
-                seen[item.id] = true;
-                const steam = (item.lows || []).find(l => l && l.shop && Number(l.shop.id) === 61 && l.price && l.price.amount != null && typeof l.price.currency === "string" && /^[A-Z]{3}$/.test(l.price.currency));
-                let value = null;
-                if (steam) {
-                    const cur = steam.price.currency;
-                    value = {
-                        price: {
-                            amount: Number(steam.price.amount),
-                            currency: cur
-                        },
-                        regular: steam.regular && steam.regular.amount != null ? {
-                            amount: Number(steam.regular.amount),
-                            currency: cur
-                        } : null,
-                        cut: Number(steam.cut) > 0 ? Number(steam.cut) : 0,
-                        timestamp: steam.timestamp || null
-                    };
-                }
-                const prev = bucket[item.id] && bucket[item.id].value;
-                if (prev && (!value || prev.price.currency === value.price.currency && prev.price.amount <= value.price.amount)) value = prev;
-                bucket[item.id] = {
-                    value: value,
-                    savedAt: now
-                };
-                out[item.id] = value;
-            });
-            chunk.forEach(uuid => {
-                if (!seen[uuid]) bucket[uuid] = {
-                    value: null,
-                    savedAt: now
-                };
-            });
-            store.write(ITAD_LOWS_KEY, itadLows);
-            if (i + ITAD_BATCH < need.length) await sleep(MIN_REQUEST_GAP);
-        }
-        return out;
-    }
-    async function itadHistoryLow(uuid, country) {
-        const code = country.toUpperCase();
-        const bucket = itadHistoryBucket(code);
-        const hit = bucket[uuid];
-        if (hit && Date.now() - hit.savedAt < ITAD_HISTORY_TTL) return hit.value;
-        await sleep(ITAD_HISTORY_GAP);
-        const url = ITAD_HISTORY_URL + "?country=" + encodeURIComponent(code) + "&shops=61&id=" + encodeURIComponent(uuid);
-        const data = await itadGet(url);
-        let value = null;
-        if (Array.isArray(data) && data.length) {
-            let minAmount = Infinity, minCurrency = null, minTs = null;
-            data.forEach(rec => {
-                const p = rec && rec.price ? rec.price : rec;
-                const amount = p && (p.amount != null ? p.amount : p.p);
-                const currency = p && (p.currency || p.c);
-                if (amount == null || isNaN(amount) || !currency) return;
-                if (amount < minAmount) {
-                    minAmount = amount;
-                    minCurrency = currency;
-                    minTs = rec && (rec.timestamp || rec.d || rec.date) || null;
-                }
-            });
-            if (minCurrency) {
-                value = {
-                    price: {
-                        amount: minAmount,
-                        currency: minCurrency
-                    },
-                    regular: null,
-                    cut: 0,
-                    timestamp: minTs
-                };
-            }
-        }
-        bucket[uuid] = {
-            value: value,
-            savedAt: Date.now()
-        };
-        store.write(ITAD_HISTORY_KEY, itadHistory);
-        return value;
-    }
-    async function fillMissingLows(aug, country) {
-        if (!itadKey()) return;
-        const code = country.toUpperCase();
-        const useHistory = shouldUseHistory(code);
-        const storelowOk = itadStorelowHasLocalLowest(code);
-        if (!useHistory && storelowOk === false) return;
-        const needKeys = Object.keys(aug).filter(k => aug[k] && aug[k].current && !aug[k].lowest);
-        if (!needKeys.length) return;
-        await sleep(MIN_REQUEST_GAP);
-        const idMap = await resolveItadIds(needKeys);
-        const uuidToKeys = {};
-        needKeys.forEach(k => {
-            const u = idMap[k];
-            if (u) (uuidToKeys[u] || (uuidToKeys[u] = [])).push(k);
-        });
-        const uuids = Object.keys(uuidToKeys);
-        if (!uuids.length) return;
-        if (useHistory) {
-            for (const uuid of uuids) {
-                const low = await itadHistoryLow(uuid, country);
-                if (low) uuidToKeys[uuid].forEach(k => {
-                    if (aug[k] && !aug[k].lowest) aug[k].lowest = low;
-                });
-            }
-        } else {
-            const lows = await itadSteamLows(uuids, country);
-            uuids.forEach(uuid => {
-                if (!lows[uuid]) return;
-                uuidToKeys[uuid].forEach(k => {
-                    if (aug[k] && !aug[k].lowest) aug[k].lowest = lows[uuid];
-                });
-            });
-        }
     }
     function createCountryControl(onChange) {
         const wrap = document.createElement("span");
@@ -707,14 +447,6 @@
             if (r) wishlistIds.set(r.key, r);
         });
     }
-    async function harvestFromWishlistHtml() {
-        try {
-            const html = await request({
-                url: location.protocol + "//store.steampowered.com/wishlist/"
-            });
-            harvest((new DOMParser).parseFromString(html, "text/html"));
-        } catch {}
-    }
     async function fetchWishlistItems() {
         try {
             const text = await request({
@@ -814,30 +546,29 @@
         const maxStagnant = mobile ? 3 : 5;
         const loadWait = mobile ? 500 : 700;
         let size = wishlistIds.size, stagnant = 0;
-        while (wishlistIds.size < expectedCount && Date.now() < deadline) {
-            if (Date.now() - lastUserScrollAt < 1500) break;
-            programmaticScroll = true;
-            scroller.scrollTop = scroller.scrollHeight;
-            await sleep(loadWait);
-            harvest(document);
-            observeRows();
-            queuePrices();
-            programmaticScroll = true;
-            scroller.scrollTop = startPos;
-            await sleep(120);
-            programmaticScroll = false;
-            if (wishlistIds.size === size) {
-                if (++stagnant >= maxStagnant) break;
-            } else {
-                stagnant = 0;
-                size = wishlistIds.size;
-            }
-            updateCollectionProgress();
-        }
         programmaticScroll = true;
-        scroller.scrollTop = startPos;
-        await sleep(120);
-        programmaticScroll = false;
+        try {
+            while (wishlistIds.size < expectedCount && Date.now() < deadline) {
+                if (Date.now() - lastUserScrollAt < 1500) break;
+                scroller.scrollTop = scroller.scrollHeight;
+                await sleep(loadWait);
+                harvest(document);
+                observeRows();
+                queuePrices();
+                scroller.scrollTop = startPos;
+                await sleep(120);
+                if (wishlistIds.size === size) {
+                    if (++stagnant >= maxStagnant) break;
+                } else {
+                    stagnant = 0;
+                    size = wishlistIds.size;
+                }
+                updateCollectionProgress();
+            }
+        } finally {
+            scroller.scrollTop = startPos;
+            programmaticScroll = false;
+        }
     }
     function queuePrices() {
         wishlistIds.forEach((item, key) => {
@@ -871,8 +602,7 @@
         if (draining) return;
         draining = true;
         try {
-            const code = currentCountry.toUpperCase();
-            await Promise.all([ probeAugmentedRegion(currentCountry), shouldUseHistory(code) ? null : probeItadStorelowRegion(currentCountry) ]);
+            await probeAugmentedRegion(currentCountry);
             while (pendingIds.size) {
                 const wait = MIN_REQUEST_GAP - (Date.now() - lastRequestAt);
                 if (wait > 0) await sleep(wait);
@@ -880,12 +610,10 @@
                 const country = currentCountry;
                 const gen = generation;
                 lastRequestAt = Date.now();
-                const [aug, steam] = await Promise.all([ fetchPrices(chunk, country).then(normalizeBatch).catch(() => ({})), fetchSteamRegionPrices(chunk, country) ]);
+                const noLocal = augmentedHasLocalLowest(country.toUpperCase()) === false;
+                const [aug, steam] = await Promise.all([ noLocal ? Promise.resolve({}) : fetchPrices(chunk, country).catch(() => ({})), fetchSteamRegionPrices(chunk, country) ]);
                 if (gen !== generation) continue;
-                if (steam) mergeRegionPrices(aug, steam);
-                try {
-                    await fillMissingLows(aug, country);
-                } catch {}
+                mergeRegionPrices(aug, steam);
                 if (gen !== generation) continue;
                 const now = Date.now();
                 Object.keys(aug).forEach(key => {
@@ -935,8 +663,7 @@
             lowSum: lowSum,
             curSum: curSum,
             save: saveSum,
-            currencies: [ ...currencies ],
-            complete: expectedCount > 0 ? wishlistIds.size >= expectedCount : true
+            currencies: [ ...currencies ]
         };
     }
     function rowsHost() {
@@ -1249,23 +976,28 @@
             updateCollectionProgress();
             return;
         }
-        const parts = [ `<span class="label">史低合计</span><span class="main">${formatCNY(s.lowSum)}</span>`, `<span class="dim">当前合计</span><span class="cur">${formatCNY(s.curSum)}</span>` ];
+        const noLowAtAll = s.counted > 0 && s.noLow === s.counted;
+        const parts = [ `<span class="label">史低合计</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum)}</span>`, `<span class="dim">当前合计</span><span class="cur">${formatCNY(s.curSum)}</span>` ];
         if (s.save > .005) parts.push(`<span class="save">等史低可省 ${formatCNY(s.save)}</span>`);
         if (s.atLow > 0) parts.push(`<span class="save">${s.atLow} 项已到史低</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">含 ${nonCNY.join("/")} 报价</span>`);
-        if (s.noLow) {
-            parts.push(itadKey() ? `<span class="warn">⚠ ${s.noLow} 项无史低数据</span>` : `<span class="warn">⚠ ${s.noLow} 项无史低数据（填 ITAD Key 可补阿根廷史低）</span>`);
+        if (augmentedHasLocalLowest(currentCountry.toUpperCase()) === false) {
+            parts.push(`<span class="dim">${COUNTRIES[currentCountry].name.replace(/^\S+\s*/, "")}无分区史低来源，仅计现价</span>`);
         }
-        if (itadKey() && itadNotice) parts.push(`<span class="warn">⚠ ${itadNotice}</span>`);
+        if (s.noLow) parts.push(`<span class="warn">⚠ ${s.noLow} 项无史低数据</span>`);
         writeIfChanged(body, `<span class="count">折扣中 ${s.onSale} 项</span>` + parts.join(""));
         updateCollectionProgress();
     }
     function updateCollectionProgress() {
-        if (expectedCount === 0 && wishlistIds.size === 0) return hideProgress();
-        const complete = expectedCount > 0 && wishlistIds.size >= expectedCount && !collecting && !draining && pendingIds.size === 0;
-        if (complete) return setProgress("已全部加载", false);
-        setProgress(`已加载 ${wishlistIds.size}/${expectedCount || "?"}`, true);
+        const total = expectedCount || wishlistIds.size;
+        if (!total) return hideProgress();
+        if (!collecting && !draining && !pendingIds.size && wishlistIds.size >= total) return setProgress("已全部加载", false);
+        let loaded = 0;
+        wishlistIds.forEach((item, key) => {
+            if (hasAnyPrice(prices[key])) loaded++;
+        });
+        setProgress(`已加载 ${loaded}/${total}`, true);
     }
     async function startCollection() {
         if (collecting) return;
@@ -1274,21 +1006,22 @@
         try {
             harvest(document);
             observeRows();
-            queuePrices();
             renderSummary();
-            const serverItems = await fetchWishlistItems();
-            if (serverItems && (serverItems.length || wishlistIds.size === 0)) {
-                serverWishlistLoaded = true;
-                serverItems.forEach(item => wishlistIds.set(item.key, item));
+            const serverRequest = fetchWishlistItems();
+            queuePrices();
+            const serverItems = await serverRequest;
+            if (serverItems) {
+                const serverKeys = new Set(serverItems.map(item => item.key));
+                if ([ ...wishlistIds.keys() ].every(key => serverKeys.has(key))) {
+                    serverWishlistLoaded = true;
+                    expectedCount = serverItems.length;
+                    serverItems.forEach(item => wishlistIds.set(item.key, item));
+                }
             }
-            refreshExpected();
-            await harvestFromWishlistHtml();
-            harvest(document);
-            observeRows();
-            refreshExpected();
+            if (!serverWishlistLoaded) refreshExpected();
             queuePrices();
             renderSummary();
-            if (expectedCount && wishlistIds.size < expectedCount) {
+            if (!serverWishlistLoaded && expectedCount && wishlistIds.size < expectedCount) {
                 updateCollectionProgress();
                 await harvestByScroll();
             }
@@ -1302,7 +1035,7 @@
         if (t.length === 0 || t.length > 20) return false;
         if (/^-\s?\d{1,3}\s?%$/.test(t)) return true;
         if (!/[\d.,]/.test(t)) return false;
-        return /\p{Sc}/u.test(t) || /(?:USD|CNY|JPY|EUR|GBP|RUB|BRL|PLN|KRW|TWD|SGD|MXN|AUD|CAD|HKD|TRY|ARS)\b/.test(t);
+        return /\p{Sc}/u.test(t) || /(?:USD|CNY|INR|EUR|GBP|RUB|BRL|PLN|KRW|TWD|SGD|MXN|AUD|CAD|HKD|TRY|ARS)\b/.test(t);
     }
     function priceLeaf(row) {
         const rect = row.getBoundingClientRect();
@@ -1354,8 +1087,8 @@
             row.style.flexWrap = "wrap";
             el.style.flex = "0 0 100%";
         }
-        const indent = link.getBoundingClientRect().left - row.getBoundingClientRect().left;
-        if (indent > 0) el.style.paddingLeft = `${Math.round(indent)}px`;
+        const indent = Math.max(0, link.getBoundingClientRect().left - row.getBoundingClientRect().left);
+        el.style.paddingLeft = `${Math.round(indent + 10)}px`;
     }
     function titleLinkOf(row, link) {
         const r = keyOfHref(link.href);
@@ -1626,12 +1359,12 @@
         .shc-summary .shc-cc-list button:hover { background: rgba(163,186,211,.25); color: #f7f8f8; }
         .shc-summary .shc-cc-list button.on { color: #def3ff; }
         .shc-cc-list button .flag { font-size: .95em; line-height: 1; }
-        .game_lowest_price { word-break: break-word; font-size: 12px; color: #acf; margin-top: 5px; display: block; width: 100%; box-sizing: border-box; }
+        .game_lowest_price { word-break: break-word; font-size: 12px; color: #acf; margin-top: 5px; display: block; width: 100%; box-sizing: border-box; padding-left: 5px; }
         .game_lowest_price .shc-mobile-lowline, .game_lowest_price .shc-mobile-currentline { display: block; }
         .game_lowest_price .shc-discount { color: #a5cb00; font-weight: bold; }
         .game_lowest_price.at-low { color: #e74c3c; font-weight: bold; }
         .game_lowest_price.at-low .shc-discount { color: #e74c3c; }
-        .game_lowest_price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto; display: block;
+        .game_lowest_price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto; display: block; padding-left: 5px;
             text-align: left; margin: 0 clamp(6px, 1vw, 14px) 0 0; line-height: 1.5; }
         .shc-summary {
             display: flex; align-items: center; flex-wrap: wrap;
