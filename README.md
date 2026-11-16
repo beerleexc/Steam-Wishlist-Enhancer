@@ -9,7 +9,7 @@
 
 一个免费的用户脚本，用于增强 Steam 愿望单页面。
 
-它仅作用于 [Steam 愿望单](https://store.steampowered.com/wishlist)，并在愿望单中添加以下功能：
+它仅作用于 [**Steam 愿望单]**(https://store.steampowered.com/wishlist)，并在愿望单中添加以下功能：
 
 ### 史低查询
 
@@ -53,7 +53,7 @@
 
 ### 用户脚本管理器。
 
-PC端推荐使用 [Tampermonkey](http://tampermonkey.net/)，ios端推荐使用 [Stay](https://apps.apple.com/cn/app/stay-for-safari-%E7%94%A8%E6%88%B7%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA%E6%8F%92%E4%BB%B6/id1591620171)，steam客户端推荐使用[脚本猫](https://scriptcat.org/zh-CN)
+PC端推荐使用 **[Tampermonkey](http://tampermonkey.net/)**，ios端推荐使用 [**Stay**](https://apps.apple.com/cn/app/stay-for-safari-%E7%94%A8%E6%88%B7%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA%E6%8F%92%E4%BB%B6/id1591620171)，steam客户端推荐使用[**脚本猫**](https://scriptcat.org/zh-CN)
 
 ### 安装地址：[Greasyfork](https://greasyfork.org/zh-CN/scripts/605431-steam%E6%84%BF%E6%9C%9B%E5%8D%95%E5%A2%9E%E5%BC%BA)
 
@@ -70,11 +70,9 @@ PC端推荐使用 [Tampermonkey](http://tampermonkey.net/)，ios端推荐使用 
 
 脚本使用 `GM_setValue` / `GM_getValue` 在本地缓存地区、价格、汇率和特卖信息。
 
-## 体验与兼容
+## 说明
 
 - 根据页面/浏览器语言自动切换中文/英文 UI。
-- 移动端价格布局适配。
-- 返回顶部按钮。
 - 不修改 Steam 账户数据，仅读取和展示信息。
 - 价格与史低数据仅供参考，最终价格以 Steam 结算页为准。第三方数据可能缺失、延迟或存在地区/货币误差。小黑盒对独联体、土耳其、阿根廷等地区价格存在取整，脚本会按 Steam 规则重算，但仍可能有误差。
 
