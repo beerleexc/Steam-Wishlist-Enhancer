@@ -4,7 +4,7 @@
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.4.0
+// @version     1.5.0
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -466,6 +466,23 @@
             return null;
         }
     }
+    // 当前页面是不是“自己的”愿望单：用户 ID 取自页面内嵌的 valve-ssr-data，归属取自地址栏或 loaderData
+    function isOwnWishlist() {
+        let data = null;
+        try {
+            const node = document.getElementById("valve-ssr-data");
+            data = node ? JSON.parse(node.textContent || "{}") : null;
+        } catch {
+            return false;
+        }
+        const viewer = String(data && data.UserConfig && data.UserConfig.steamid || "");
+        if (!viewer || viewer === "0") return false;
+        const inUrl = decodeURIComponent(location.pathname).match(/\/wishlist\/profiles\/(\d+)/);
+        if (inUrl) return inUrl[1] === viewer;
+        const loader = Array.isArray(data.loaderData) ? data.loaderData : [];
+        const owner = (loader[1] && loader[1].steamid) || (loader.find(item => item && item.steamid) || {}).steamid;
+        return !!owner && String(owner) === viewer;
+    }
     const COUNT_NUMBER = "([\\d][\\d,.]*)";
     const COUNT_UNIT = "(?:个项目|個項目|项目|項目|个物品|個物品|個のアイテム|アイテム|items?\\b|games?\\b|apps?\\b|products?\\b|Artikel\\b|игр[\\p{L}]*)";
     const COUNT_PATTERNS = [ new RegExp(`\\bof\\s*${COUNT_NUMBER}\\s*${COUNT_UNIT}`, "i"), new RegExp(`${COUNT_NUMBER}\\s*${COUNT_UNIT}`, "iu"), new RegExp(`${COUNT_UNIT}\\s*[（(:：]?\\s*${COUNT_NUMBER}`, "iu"), new RegExp(`(?:wishlist|愿望单|願望單|愿望清单|願望清單|希望リスト)[^\\d]{0,24}${COUNT_NUMBER}`, "iu") ];
@@ -535,13 +552,12 @@
         let size = wishlistIds.size, stagnant = 0, exhausted = false;
         programmaticScroll = true;
         try {
+            // 采集期间停在底部跟随新内容，结束后一次性回到原位：不再每轮“底↔顶”往返，避免整页上下闪
             while (wishlistIds.size < expectedCount && Date.now() < deadline) {
                 if (Date.now() - lastUserScrollAt < 1500) break;
                 scroller.scrollTop = scroller.scrollHeight;
                 await sleep(loadWait);
                 syncRows();
-                scroller.scrollTop = startPos;
-                await sleep(120);
                 if (wishlistIds.size === size) {
                     if (++stagnant >= maxStagnant) {
                         exhausted = true;
@@ -977,10 +993,8 @@
         let loaded = 0;
         for (const key of wishlistIds.keys()) if (hasAnyPrice(prices[key])) loaded++;
         if (!loaded) return hideProgress();
-        const working = collecting || draining || pendingIds.size > 0;
-        const idsComplete = serverWishlistLoaded || (expectedCount > 0 ? wishlistIds.size >= expectedCount : true);
-        const allAttempted = wishlistIds.size > 0 && doneIds.size >= wishlistIds.size;
-        const busy = working || !idsComplete || !allAttempted;
+        // 有采集/请求队列时转圈，队列跑空（滑动停下、抓完）立刻恢复“返回顶部”
+        const busy = !!(collecting || draining || pendingIds.size > 0);
         setProgress(busy ? T.loaded(loaded) : T.backToTop, busy);
     }
     async function startCollection() {
@@ -995,7 +1009,8 @@
             if (run !== generation) return;
             if (serverItems) {
                 const serverKeys = new Set(serverItems.map(item => item.key));
-                if ([ ...wishlistIds.keys() ].every(key => serverKeys.has(key))) {
+                // 自己的愿望单：服务器列表就是权威数据，不再用 DOM 采到的 appid 做子集校验
+                if (isOwnWishlist() || [ ...wishlistIds.keys() ].every(key => serverKeys.has(key))) {
                     serverWishlistLoaded = true;
                     expectedCount = serverItems.length;
                     serverItems.forEach(item => wishlistIds.set(item.key, item));
