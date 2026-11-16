@@ -4,8 +4,9 @@
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.5.3
+// @version     1.5.4
 // @include     *://store.steampowered.com/wishlist/*
+// @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
 // @grant       GM_getValue
@@ -1493,7 +1494,7 @@
         #shc-sale-countdown .shc-cd-date { color: #66c0f4; font-weight: 600; }
         #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; }
         #shc-sale-countdown .shc-cd-num { color: #8b5cf6; font-weight: 600; }
-        #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 25px);
+        #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 12px);
             z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 24px;
             background: rgba(23,29,37,.70); border: 1px solid rgba(255,255,255,.12); border-radius: 5px;
             cursor: pointer; align-items: center; justify-content: center; gap: 3px; padding: 2px 6px;
