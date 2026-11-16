@@ -58,7 +58,7 @@
 ## 截图
 
 功能概览
-https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/assets/CleanShot%2011.47.14.png
+![功能概览](assets/CleanShot 11.47.14.png)
 国家切换
 assets/IMG_3782.jpg
 移动端适配
