@@ -4,7 +4,7 @@
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.5.1
+// @version     1.5.2
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -20,8 +20,11 @@
 // ==/UserScript==
 (function () {
     "use strict";
+    // 单例守护，防止脚本被重复注入时跑多份
     if (document.documentElement.dataset.shcWishlistActive) return;
     document.documentElement.dataset.shcWishlistActive = "1";
+
+    // ── 全局配置 ── 语言、地区列表、货币识别、节流与请求参数
     const UI_LANGUAGE = (document.documentElement.lang || navigator.language || "zh-CN").toLowerCase();
     const IS_ZH = UI_LANGUAGE.startsWith("zh");
     const T = ({
@@ -93,6 +96,7 @@
             GM_setValue(key, { v: STORE_VERSION, t: Date.now(), value: value });
         }
     };
+    // ── 网络请求封装 ── 统一 GM_xmlhttpRequest，附带错误映射与 JSON 便捷方法
     function request(opts) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -114,6 +118,7 @@
         data: data,
         headers: { "Content-Type": "application/json", ...headers }
     });
+    // ── 汇率模块 ── 从 open.er-api.com 拉取 USD 基准汇率，缓存 24h，用于 CNY 折算
     const FX_URL = "https://open.er-api.com/v6/latest/USD";
     const FX_KEY = "steamHistoryFxRates";
     const FX_TTL = 24 * 60 * 60 * 1e3;
@@ -172,6 +177,7 @@
         const coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
         return w > 0 && (w <= 720 || coarse && w <= 900);
     }
+    // ── 价格数据源 ── 三路并行：augmentedsteam 多地区当前价 + Steam 原生价 + 小黑盒史低
     function fetchPrices(chunk, country) {
         return postJSON(location.protocol + "//api.augmentedsteam.com/prices/v2", {
             country: country.toUpperCase(),
@@ -253,6 +259,7 @@
             };
         }).catch(() => null);
     }
+    // 串行请求小黑盒史低（每个 appid 间隔 200ms），结果合入 merged；失败或过期时复用 prices 缓存
     async function attachXhhLows(chunk, country, merged, gen) {
         for (const appid of chunk.app) {
             if (gen !== generation) return;
@@ -281,6 +288,7 @@
             }
         }
     }
+    // aug 为主，steam 补齐：去掉 steam 不认识的条目，让 steam 的 regionLocked 覆盖 aug 的同名字段
     function mergeRegionPrices(aug, steam) {
         if (!steam) return aug;
         Object.keys(aug).forEach(key => {
@@ -442,6 +450,7 @@
             if (r) wishlistIds.set(r.key, r);
         });
     }
+    // ── 愿望单采集 ── 两路：服务器 rgWishlist JSON 优先，DOM 行解析兜底；采集结束后按需滚动抓剩余懒加载行
     async function fetchWishlistItems() {
         try {
             const text = await request({
@@ -466,7 +475,7 @@
             return null;
         }
     }
-    // 当前页面是不是“自己的”愿望单：用户 ID 取自页面内嵌的 valve-ssr-data，归属取自地址栏或 loaderData
+    // 判定当前愿望单是否属于已登录用户自己。命中时 rgWishlist 直接当权威列表，跳过 DOM 子集校验
     function isOwnWishlist() {
         let data = null;
         try {
@@ -552,7 +561,6 @@
         let size = wishlistIds.size, stagnant = 0, exhausted = false;
         programmaticScroll = true;
         try {
-            // 采集期间停在底部跟随新内容，结束后一次性回到原位：不再每轮“底↔顶”往返，避免整页上下闪
             while (wishlistIds.size < expectedCount && Date.now() < deadline) {
                 if (Date.now() - lastUserScrollAt < 1500) break;
                 scroller.scrollTop = scroller.scrollHeight;
@@ -575,11 +583,13 @@
             programmaticScroll = false;
         }
     }
+    // DOM 兜底：遍历已渲染的 div.Panel[data-index]，用链接里的 appid 提取游戏 key 并入 wishlistIds
     function syncRows() {
         harvest(document);
         observeRows();
         queuePrices();
     }
+    // 队列调度：将 wishlistIds 里未抓价的项推到 pendingIds，超过 AUTO_QUEUE_LIMIT 时只抓可见行
     function queuePrices() {
         if (wishlistIds.size > AUTO_QUEUE_LIMIT) {
             visibleRows.forEach(row => {
@@ -616,6 +626,7 @@
         }
         return chunk;
     }
+    // 抓价主循环：从 pendingIds 按 CHUNK_SIZE 分批拉 augmentedsteam + Steam 原生价 + 小黑盒史低，节流间隔 MIN_REQUEST_GAP
     async function drainPrices() {
         if (draining) return;
         draining = true;
@@ -665,6 +676,7 @@
         }
     }
     let sumCache = null;
+    // ── 汇总计算 ── 遍历 wishlistIds 聚合史低合计、当前合计、币种分布、锁区/缺失计数
     function summarize() {
         const sig = `${dataVersion}|${wishlistIds.size}|${fetchedKeys.size}|${fxLive ? 1 : 0}${fxTried ? 1 : 0}`;
         if (sumCache && sumCache.sig === sig) return sumCache.value;
@@ -897,6 +909,7 @@
         if (node && node.nodeValue !== value) node.nodeValue = value;
     }
     const saleIsLive = (sale, now) => sale.startMs <= now && sale.endMs > now;
+    // ── 特卖倒计时 ── 从 Steamworks 官方页面抓在售/即将到来的大促，每秒/每 20s 刷新显示
     function buildCountdown(sale, now) {
         countdownEl.textContent = "";
         const add = (cls, text) => {
@@ -961,6 +974,7 @@
         refreshSale();
         if (!saleTimer) saleTimer = setInterval(tickCountdown, 2e4);
     }
+    // ── 汇总栏渲染 ── 把 summarize() 的结果写入 #shc-wishlist-summary，debounce 200ms 触发
     function renderSummary() {
         const box = getSummaryBox();
         if (!box) return;
@@ -989,14 +1003,15 @@
         if (!collecting) revealBar(box);
         updateCollectionProgress();
     }
+    // 进度提示：队列/采集运行时显示"已加载 N 项"并转动漏斗，跑空后恢复"返回顶部"静态
     function updateCollectionProgress() {
         let loaded = 0;
         for (const key of wishlistIds.keys()) if (hasAnyPrice(prices[key])) loaded++;
         if (!loaded) return hideProgress();
-        // 有采集/请求队列时转圈，队列跑空（滑动停下、抓完）立刻恢复“返回顶部”
         const busy = !!(collecting || draining || pendingIds.size > 0);
         setProgress(busy ? T.loaded(loaded) : T.backToTop, busy);
     }
+    // ── 采集总入口 ── 启动服务器 JSON 请求 + DOM 同步，按需滚动兜底，完成后触发 drainPrices
     async function startCollection() {
         const run = generation;
         collecting++;
@@ -1009,7 +1024,6 @@
             if (run !== generation) return;
             if (serverItems) {
                 const serverKeys = new Set(serverItems.map(item => item.key));
-                // 自己的愿望单：服务器列表就是权威数据，不再用 DOM 采到的 appid 做子集校验
                 if (isOwnWishlist() || [ ...wishlistIds.keys() ].every(key => serverKeys.has(key))) {
                     serverWishlistLoaded = true;
                     expectedCount = serverItems.length;
@@ -1305,6 +1319,7 @@
             visibleRows.forEach(row => paintRow(row));
         });
     }
+    // ── 滚动联动 ── 视口内愿望单行加入 visibleRows，离开则移出；大愿望单下只抓可见行价格
     const rowObserver = new IntersectionObserver(entries => {
         entries.forEach(e => {
             if (e.isIntersecting) {
@@ -1413,6 +1428,7 @@
         if (isOwnNode(r.target)) return true;
         return r.type === "childList" && r.addedNodes.length > 0 && r.removedNodes.length === 0 && [ ...r.addedNodes ].every(isOwnNode);
     }
+    // ── 入口 ── 等待愿望单 DOM 就绪后启动采集、倒计时、Observer；失败时最多重试 10 次
     function initWishlist(retry = 0) {
         if (document.querySelectorAll(ROW_SELECTOR).length === 0) {
             if (retry < 20) setTimeout(() => initWishlist(retry + 1), 500);
@@ -1434,12 +1450,14 @@
         if (document.fonts && document.fonts.ready) document.fonts.ready.then(runMobileFits);
         startCollection();
         startCountdown();
+        // 全局 Observer：站点 DOM 变更时 debounce 触发 syncRows，同时兜住被 React 重建掉的汇总栏
         new MutationObserver(records => {
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
             if (records.some(r => r.type === "childList" && !isOwnRecord(r))) scheduleHarvest();
             if (mobileFits.size) runMobileFits();
         }).observe(document.body, { childList: true, characterData: true, subtree: true });
     }
+    // ── 样式注入 ── 全部选择器加 .shc- 前缀避免冲突；移动端规则集中在 .shc-mobile 媒体标记下
     GM_addStyle(`
         .shc-cc { position: relative; display: inline-flex; }
         .shc-cc-btn { display: inline-flex; align-items: center; gap: 3px;
@@ -1462,7 +1480,7 @@
             box-sizing: border-box; width: 100%; min-width: 0; gap: clamp(6px, 1.1vw, 12px);
             margin: 6px 0 12px; padding: 10.5px clamp(8px, 1.4vw, 12px);
             background: #132434; border: 1px solid rgba(255,255,255,.08); border-radius: 4px;
-            font-size: 12px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
+            font-size: 11.5px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
             -webkit-user-select: text; user-select: text; position: sticky; top: 0; z-index: 900; }
         .shc-summary .label, .shc-summary .dim { color: #8b929a; }
         .shc-summary .main { color: #66c0f4; }
