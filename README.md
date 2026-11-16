@@ -1,4 +1,4 @@
-# Steam 愿望单增强（Steam Wishlist Enhancer）
+# ！[](assets/icon.svg)Steam 愿望单增强（Steam Wishlist Enhancer)
 
 一个免费的用户脚本，用于增强 Steam 愿望单页面。
 
@@ -57,13 +57,20 @@
 
 ## 截图
 
-功能概览
+*功能概览*
+
 ![功能概览](assets/CleanShot_11.47.14.png)
-国家切换
+
+*国家切换*
+
 ![国家切换](assets/IMG_3782.jpg)
-移动端适配
+
+*移动端适配*
+
 ![移动端适配](assets/IMG_3784.jpg)
-客户端适配
+
+*客户端适配*
+
 ![客户端适配](assets/CleanShot_12.24.48.png)
 
 ## License
@@ -72,3 +79,14 @@
 
 作者：beerlee  
 版本：1.5.0
+
+
+
+
+
+
+
+
+    
+
+  
