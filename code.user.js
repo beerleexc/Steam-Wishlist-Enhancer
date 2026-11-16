@@ -1,12 +1,10 @@
 // ==UserScript==
-// @name        Steam愿望单增强
-// @name:zh-CN  Steam愿望单增强
-// @name:en     Steam Wishlist Enhancer
+// @name        Steam愿望单增强（Steam Wishlist Enhancer）
 // @namespace   https://github.com/beerleexc
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.3.0
+// @version     1.4.0
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -30,13 +28,13 @@
         zh: {
             switchRegion: "切换查询地区", networkError: "网络错误", requestTimeout: "请求超时",
             winter: "❄️ 冬季特卖", spring: "🌱 春季特卖", summer: "☀️ 夏季特卖", autumn: "🍂 秋季特卖",
-            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败",
+            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败，暂无法折算人民币",
             lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低", current: "当前", regionLocked: "锁区",
-            saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项已到史低`,
+            saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项史低中`,
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
-            missing: n => `${n} 项游戏暂无数据`, onSale: n => `折扣中 ${n} 项`,
+            missing: n => `${n} 项暂无数据`,
             loaded: n => `已加载 ${n} 项`, backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
-            startsIn: "距开始还有", endsIn: "距结束还有", days: " 天 ", hours: " 时 ", minutes: " 分",
+            startsIn: "距开始", endsIn: "距结束", days: " 天 ", hours: " 时 ", minutes: " 分",
             native: value => `（${value}）`,
             saleTitle: (sale, start, end) => `${sale.label} 太平洋时间 ${formatSaleDate(start)} 开幕 — ${formatSaleDate(end)} 收摊｜北京 ${new Date(start).toLocaleString("zh-CN")} — ${new Date(end).toLocaleString("zh-CN")}`
         },
@@ -46,8 +44,8 @@
             empty: "📊 Wishlist is empty", ratesMissing: "⚠ Exchange rates unavailable; CNY conversion is disabled",
             lowTotal: "Historical low total", currentTotal: "Current total", lowest: "Low ", current: "Current ", regionLocked: "Region locked",
             saveAtLow: value => `Save ${value} at historical lows`, atLow: n => `${n} at historical low`,
-            includes: value => `Includes ${value} prices`, noLow: n => `⚠ No historical-low data for ${n} items`,
-            missing: n => `${n} items unavailable`, onSale: n => `${n} on sale`,
+            includes: value => `Includes ${value} prices`, noLow: n => `⚠ No data for ${n} ${n === 1 ? "item" : "items"}`,
+            missing: n => `${n} items unavailable`,
             loaded: n => `${n} loaded`, backToTop: "Back to top", backToTopTitle: "Back to top",
             startsIn: "Starts in", endsIn: "Ends in", days: " d ", hours: " h ", minutes: " m",
             native: value => ` (${value})`,
@@ -73,7 +71,7 @@
     ];
     const CURRENCY_SYMBOLS = { CNY: "¥", JPY: "¥", ...Object.fromEntries(CURRENCY_TABLE.map(([ , code, sym ]) => [ code, sym ])) };
     const ZERO_DECIMAL = new Set([ "JPY", "IDR" ]);
-    const STORE_VERSION = "v4";
+    const STORE_VERSION = "v10";
     const MIN_REQUEST_GAP = 1200;
     const CHUNK_SIZE = 50;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -178,20 +176,15 @@
         return postJSON(location.protocol + "//api.augmentedsteam.com/prices/v2", {
             country: country.toUpperCase(),
             apps: chunk.app,
-            subs: chunk.sub,
-            bundles: chunk.bundle,
+            subs: [],
+            bundles: [],
             voucher: true,
             shops: [ 61 ]
         }).then(d => d.prices || {});
     }
     const STEAM_GETITEMS = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/";
-    const STEAM_TYPES = [ "app", "sub", "bundle" ];
-    function fetchSteamRegionPrices(chunk, country) {
-        const ids = [
-            ...chunk.app.map(appid => ({ appid })),
-            ...chunk.sub.map(packageid => ({ packageid })),
-            ...chunk.bundle.map(bundleid => ({ bundleid }))
-        ];
+    function fetchSteamRegionPrices(chunk, country, checkLocks = true) {
+        const ids = chunk.app.map(appid => ({ appid }));
         if (!ids.length) return Promise.resolve({});
         const input = {
             ids: ids,
@@ -201,29 +194,40 @@
         return getJSON({
             url: STEAM_GETITEMS + "?input_json=" + encodeURIComponent(JSON.stringify(input)),
             headers: { Accept: "application/json" }
-        }).then(d => {
+        }).then(async d => {
             const out = {};
+            const pending = new Set;
             ((d.response || {}).store_items || []).forEach(it => {
-                const type = STEAM_TYPES[it.item_type];
-                if (!type) return;
-                const key = `${type}/${it.id}`;
-                if (it.is_coming_soon) {
-                    out[key] = { unreleased: true };
-                    return;
-                }
+                if (it.item_type !== 0) return;
+                const key = `app/${it.id}`;
                 const po = it.best_purchase_option;
-                if (!po || po.final_price_in_cents == null) {
-                    if (it.is_free) out[key] = { free: true, price: { amount: 0, currency: COUNTRIES[country].currency }, cut: 0 };
-                    else out[key] = { regionLocked: true };
+                const noPurchase = !po || po.final_price_in_cents == null;
+                if (it.is_free || noPurchase) {
+                    out[key] = { noPrice: true };
+                    if (noPurchase && !it.is_free && !it.is_coming_soon) pending.add(key);
                     return;
                 }
                 const hit = CURRENCY_TABLE.find(h => h[0].test(po.formatted_final_price || ""));
                 const unit = hit ? hit[1] : COUNTRIES[country].currency;
                 out[key] = {
                     price: { amount: Number(po.final_price_in_cents) / 100, currency: unit },
-                    cut: Number(po.discount_pct) > 0 ? Number(po.discount_pct) : 0
+                    cut: Number(po.discount_pct) > 0 ? Number(po.discount_pct) : 0,
+                    regularCents: Number(po.original_price_in_cents ?? po.final_price_in_cents),
+                    preorder: !!it.is_coming_soon
                 };
             });
+            if (checkLocks && pending.size) {
+                const otherChunk = { app: [ ...pending ].map(key => Number(key.split("/")[1])) };
+                const others = Object.keys(COUNTRIES).filter(c => c !== country);
+                const results = await Promise.all(others.map(c => fetchSteamRegionPrices(otherChunk, c, false)));
+                results.forEach(otherPrices => {
+                    if (!otherPrices) return;
+                    pending.forEach(key => {
+                        const info = otherPrices[key];
+                        if (info && info.price && info.price.amount > 0) out[key] = { regionLocked: true };
+                    });
+                });
+            }
             return out;
         }).catch(() => null);
     }
@@ -253,7 +257,8 @@
         for (const appid of chunk.app) {
             if (gen !== generation) return;
             const key = `app/${appid}`;
-            if (!merged[key] || merged[key].unreleased || merged[key].regionLocked) continue;
+            if (!merged[key] || !merged[key].current) continue;
+            const current = merged[key].current;
             const prev = prices[key];
             if (prev && prev.lowest && Date.now() - (prev.lowAt || 0) < XHH_LOW_TTL) {
                 merged[key].lowest = prev.lowest;
@@ -263,6 +268,13 @@
             await sleep(XHH_GAP);
             const low = await fetchXhhLowest(appid, country);
             if (gen !== generation) return;
+            if (low && (country === "az" || country === "tr" || country === "ar")) {
+                // 小黑盒对这些地区的价格有取整，用 Steam 原价与史低折扣按 Steam 规则重算。
+                const cents = Math.floor(current.regularCents * (100 - low.cut) / 100);
+                const exact = cents / 100;
+                if (low.cut > 0 && cents > 0 && low.price.currency === current.price.currency
+                    && Math.abs(exact - low.price.amount) <= 0.1) low.price.amount = exact;
+            }
             if (low) {
                 merged[key].lowest = low;
                 merged[key].lowAt = Date.now();
@@ -279,10 +291,12 @@
         });
         Object.keys(steam).forEach(key => {
             const entry = aug[key] || (aug[key] = {});
-            if (steam[key].unreleased) {
-                entry.unreleased = true;
+            delete entry.noPrice;
+            if (steam[key].noPrice) {
+                entry.noPrice = true;
                 delete entry.current;
                 delete entry.lowest;
+                delete entry.regionLocked;
                 return;
             }
             if (steam[key].regionLocked) {
@@ -293,6 +307,11 @@
             }
             delete entry.regionLocked;
             entry.current = steam[key];
+            const current = entry.current;
+            const lowest = entry.lowest;
+            if (current.preorder && (!lowest || !lowest.price || (lowest.price.currency === current.price.currency && current.price.amount < lowest.price.amount))) {
+                entry.lowest = { ...current };
+            }
         });
         return aug;
     }
@@ -312,9 +331,6 @@
             select.appendChild(option);
         });
         wrap.append(btn, select);
-        const unmark = () => wrap.classList.remove("open");
-        select.addEventListener("pointerdown", () => wrap.classList.add("open"));
-        select.addEventListener("blur", unmark);
         const flagOf = code => (COUNTRIES[code].name.match(/^\S+/) || [ "" ])[0];
         const labelOf = code => COUNTRIES[code].name.replace(/^\S+\s*/, "");
         const paint = () => {
@@ -322,7 +338,6 @@
             select.value = currentCountry;
         };
         select.addEventListener("change", () => {
-            wrap.classList.remove("open");
             if (select.value === currentCountry) return;
             currentCountry = select.value;
             GM_setValue("steamHistoryCountry", currentCountry);
@@ -347,7 +362,6 @@
     const visibleRows = new Set;
     const mobileFits = new Map;
     let fitObserver = null;
-    let fitTextObserver = null;
     let fitQueued = false;
     function runMobileFits() {
         if (fitQueued) return;
@@ -377,10 +391,6 @@
                 fit.apply();
             }));
             fitObserver.observe(row);
-        }
-        if (!fitTextObserver) {
-            fitTextObserver = new MutationObserver(runMobileFits);
-            fitTextObserver.observe(document.body, { childList: true, characterData: true, subtree: true });
         }
     }
     let priceBuckets = store.read(PRICE_KEY, null) || {};
@@ -418,8 +428,8 @@
         store.write(PRICE_KEY, priceBuckets);
     }, 500);
     function keyOfHref(href) {
-        const m = String(href || "").match(/(app|sub|bundle)\/(\d+)/);
-        return m ? { key: `${m[1]}/${m[2]}`, type: m[1], id: m[2] } : null;
+        const m = String(href || "").match(/app\/(\d+)/);
+        return m ? { key: `app/${m[1]}`, id: m[1] } : null;
     }
     const rowLink = row => row.querySelector('a[href*="store.steampowered.com"]') || row.querySelector("a[href]");
     const rowRef = row => {
@@ -451,7 +461,7 @@
                 const id = Number(value);
                 if (Number.isSafeInteger(id) && id > 0) ids.add(String(id));
             });
-            return [ ...ids ].map(id => ({ key: `app/${id}`, type: "app", id: id }));
+            return [ ...ids ].map(id => ({ key: `app/${id}`, id: id }));
         } catch {
             return null;
         }
@@ -569,7 +579,7 @@
         drainPrices();
     }
     function takeChunk() {
-        const chunk = { app: [], sub: [], bundle: [] };
+        const chunk = { app: [] };
         let n = 0;
         const take = key => {
             if (n >= CHUNK_SIZE) return;
@@ -577,7 +587,7 @@
             if (!item) return;
             pendingIds.delete(key);
             doneIds.add(key);
-            chunk[item.type].push(Number(item.id));
+            chunk.app.push(Number(item.id));
             n++;
         };
         visibleRows.forEach(row => {
@@ -613,8 +623,7 @@
                 mergeRegionPrices(aug, steam);
                 if (source === "xiaoheihe") await attachXhhLows(chunk, country, aug, gen);
                 if (gen !== generation) continue;
-                const keys = [];
-                [ "app", "sub", "bundle" ].forEach(type => chunk[type].forEach(id => keys.push(`${type}/${id}`)));
+                const keys = chunk.app.map(id => `app/${id}`);
                 if (ok) keys.forEach(key => fetchedKeys.add(key));
                 else keys.forEach(key => {
                     const tries = (failCount.get(key) || 0) + 1;
@@ -643,14 +652,13 @@
     function summarize() {
         const sig = `${dataVersion}|${wishlistIds.size}|${fetchedKeys.size}|${fxLive ? 1 : 0}${fxTried ? 1 : 0}`;
         if (sumCache && sumCache.sig === sig) return sumCache.value;
-        let counted = 0, noLow = 0, atLow = 0, onSale = 0, missing = 0;
+        let counted = 0, noLow = 0, atLow = 0, missing = 0;
         let lowSum = 0, curSum = 0, saveSum = 0;
         const currencies = new Set;
         const lowNative = {}, curNative = {};
         wishlistIds.forEach((_, key) => {
             const info = prices[key];
-            if (info && info.unreleased) return;
-            if (info && info.current && info.current.free && !info.lowest) return;
+            if (info && info.noPrice) return;
             const lp = info && info.lowest && info.lowest.price;
             const cp = info && info.current && info.current.price;
             if (cp && cp.currency) currencies.add(cp.currency);
@@ -676,7 +684,6 @@
                 curSum += lowCNY;
                 curNative[lp.currency] = (curNative[lp.currency] || 0) + lp.amount;
             }
-            if (info.current && info.current.cut > 0) onSale++;
         });
         const value = {
             total: wishlistIds.size,
@@ -685,7 +692,6 @@
             missing: missing,
             ratesMissing: !fxLive && fxTried,
             atLow: atLow,
-            onSale: onSale,
             lowSum: lowSum,
             curSum: curSum,
             save: saveSum,
@@ -723,7 +729,7 @@
     }
     function insertSummary(box, host) {
         const scroller = scrollHostOf(host || document.querySelector(ROW_SELECTOR));
-        if (!scroller || scroller === document.body || scroller === document.documentElement) return false;
+        if (!scroller) return false;
         if (box.parentElement !== scroller || scroller.firstElementChild !== box) scroller.insertBefore(box, scroller.firstChild);
         return true;
     }
@@ -959,12 +965,11 @@
         };
         const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ `<span class="label">${T.lowTotal}</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`, `<span class="dim">${T.currentTotal}</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>` ];
         if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(formatCNY(s.save))}</span>`);
-        if (s.atLow > 0) parts.push(`<span class="save">${T.atLow(s.atLow)}</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
         if (s.noLow) parts.push(`<span class="warn">${T.noLow(s.noLow)}</span>`);
         if (s.missing) parts.push(`<span class="warn">${T.missing(s.missing)}</span>`);
-        writeIfChanged(body, `<span class="count">${T.onSale(s.onSale)}</span>` + parts.join(""));
+        writeIfChanged(body, (s.atLow > 0 ? `<span class="dim">${T.atLow(s.atLow)}</span>` : "") + parts.join(""));
         if (!collecting) revealBar(box);
         updateCollectionProgress();
     }
@@ -986,7 +991,6 @@
             syncRows();
             renderSummary();
             const serverRequest = fetchWishlistItems();
-            queuePrices();
             const serverItems = await serverRequest;
             if (run !== generation) return;
             if (serverItems) {
@@ -1157,7 +1161,7 @@
         if (isMobileUI()) {
             const card = cardGridOf(row, leaf || item || anchor);
             if (card) {
-                const native = [ ...card.children ].find(n => n !== el && /purchase/.test(getComputedStyle(n).gridArea));
+                const native = [ ...card.children ].find(n => /purchase/.test(getComputedStyle(n).gridArea));
                 const ownRow = () => {
                     el.classList.remove("purchase-inline", "tight");
                     Object.assign(el.style, {
@@ -1250,11 +1254,9 @@
         return `${part(info.lowest)}|${part(info.current)}`;
     }
     function rowState(info) {
-        if (info && info.unreleased) return "unreleased";
-        if (info && info.current && info.current.free && !info.lowest) return "free";
-        if (info && info.regionLocked) return "locked";
-        if (hasAnyPrice(info)) return "price";
-        return "";
+        if (!info || info.noPrice) return "";
+        if (info.regionLocked) return "locked";
+        return hasAnyPrice(info) ? "price" : "";
     }
     function paintRow(row) {
         if (!row.isConnected) {
@@ -1267,7 +1269,7 @@
         const info = prices[r.key];
         const state = rowState(info);
         const existing = row.querySelector(".shc-price");
-        if (!state || state === "free" || state === "unreleased") {
+        if (!state) {
             if (existing) existing.remove();
             return;
         }
@@ -1312,7 +1314,7 @@
         div.classList.add("show");
     }
     function hideProgress() {
-        getProgressDiv().classList.remove("show");
+        getProgressDiv(false)?.classList.remove("show");
     }
     function scrollWishlistToTop() {
         const options = { top: 0, behavior: "smooth" };
@@ -1321,11 +1323,9 @@
             if (typeof host.scrollTo === "function") host.scrollTo(options);
             else host.scrollTop = 0;
         }
-        const root = document.scrollingElement || document.documentElement;
-        if (root && typeof root.scrollTo === "function") root.scrollTo(options);
         window.scrollTo(options);
     }
-    function getProgressDiv() {
+    function getProgressDiv(create = true) {
         const all = document.querySelectorAll("#shc-wishlist-progress");
         if (all.length) {
             all.forEach((el, i) => {
@@ -1333,6 +1333,7 @@
             });
             return all[0];
         }
+        if (!create) return null;
         const div = document.createElement("div");
         div.id = "shc-wishlist-progress";
         div.title = T.backToTopTitle;
@@ -1373,18 +1374,17 @@
     }
     let lastMobile = null;
     const scheduleHarvest = debounce(() => {
-        harvest(document);
-        observeRows();
+        syncRows();
         refreshExpected();
-        queuePrices();
         paintVisibleRows();
         scheduleSummary();
     }, 250);
     function applyViewportMode() {
         const mobile = isMobileUI();
         document.documentElement.classList.toggle("shc-mobile", mobile);
-        if (mobile === lastMobile) return;
+        const previous = lastMobile;
         lastMobile = mobile;
+        if (previous === null || mobile === previous) return;
         mobileFits.clear();
         document.querySelectorAll(".shc-price").forEach(e => e.remove());
         paintVisibleRows();
@@ -1413,8 +1413,6 @@
             document.body.appendChild(countryControls);
         }
         loadPriceCache();
-        harvest(document);
-        observeRows();
         applyViewportMode();
         window.addEventListener("resize", debounce(applyViewportMode, 250));
         ensureRates().then(scheduleSummary);
@@ -1423,15 +1421,16 @@
         startCountdown();
         new MutationObserver(records => {
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
-            if (records.some(r => !isOwnRecord(r))) scheduleHarvest();
-        }).observe(document.body, { childList: true, subtree: true });
+            if (records.some(r => r.type === "childList" && !isOwnRecord(r))) scheduleHarvest();
+            if (mobileFits.size) runMobileFits();
+        }).observe(document.body, { childList: true, characterData: true, subtree: true });
     }
     GM_addStyle(`
         .shc-cc { position: relative; display: inline-flex; }
-        .shc-cc-btn { display: inline-flex; align-items: center; gap: 4px;
-            background: rgba(163,186,211,.2); color: #fff; border-radius: 2px;
-            padding: 2px 8px; min-height: 22px; font-size: 12px; line-height: 1.25; }
-        .shc-cc:hover .shc-cc-btn, .shc-cc.open .shc-cc-btn { background: rgba(102,192,244,.45); }
+        .shc-cc-btn { display: inline-flex; align-items: center; gap: 3px;
+            background: rgba(163,186,211,.2); color: #fff; border-radius: 1.5px;
+            padding: 1.5px 6.5px; min-height: 18px; font-size: 12px; line-height: 1.25; }
+        .shc-cc:hover .shc-cc-btn { background: rgba(102,192,244,.45); }
         .shc-cc-btn .flag { font-size: .95em; line-height: 1; }
         .shc-cc-btn .caret { font-size: .68em; opacity: .6; }
         .shc-cc select { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0;
@@ -1442,28 +1441,28 @@
         .shc-price.at-low { color: #4a9eff; font-weight: bold; }
         .shc-price.at-low .shc-discount { color: #4a9eff; }
         .shc-price.locked { color: #e74c3c; font-weight: bold; }
-        .shc-price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto; display: block; padding-left: 5px;
+        .shc-price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto;
             text-align: left; margin: 0 clamp(6px, 1vw, 14px) 0 0; line-height: 1.5; }
         .shc-summary { display: flex; align-items: center; flex-wrap: wrap;
             box-sizing: border-box; width: 100%; min-width: 0; gap: clamp(6px, 1.1vw, 12px);
-            margin: 6px 0 12px; padding: 6px clamp(8px, 1.4vw, 12px);
+            margin: 6px 0 12px; padding: 10.5px clamp(8px, 1.4vw, 12px);
             background: #132434; border: 1px solid rgba(255,255,255,.08); border-radius: 4px;
             font-size: 12px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
             -webkit-user-select: text; user-select: text; position: sticky; top: 0; z-index: 900; }
-        .shc-summary .count, .shc-summary .label, .shc-summary .dim,
+        .shc-summary .label, .shc-summary .dim,
         .shc-summary .save, .shc-summary .warn { font-size: .9em; }
-        .shc-summary .count, .shc-summary .label, .shc-summary .dim { color: #8b929a; }
+        .shc-summary .label, .shc-summary .dim { color: #8b929a; }
         .shc-summary .main { color: #66c0f4; }
         .shc-summary .cur { color: #fff; }
         .shc-summary .save { color: #a5cb00; }
         .shc-summary .warn { color: #ffc53d; }
-        .shc-summary-body { display: contents; min-width: 0; }
+        .shc-summary-body { display: contents; }
         #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
             flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
         #shc-sale-countdown { font-size: 1em; white-space: nowrap; line-height: 1.25; }
-        #shc-sale-countdown .shc-cd-date { color: #66c0f4; }
-        #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; }
-        #shc-sale-countdown .shc-cd-num { color: #8b5cf6; }
+        #shc-sale-countdown .shc-cd-date { color: #66c0f4; font-size: .9em; }
+        #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; font-size: .9em; }
+        #shc-sale-countdown .shc-cd-num { color: #8b5cf6; font-size: 1em; }
         #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 25px);
             z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 24px;
             background: rgba(23,29,37,.70); border: 1px solid rgba(255,255,255,.12); border-radius: 5px;
@@ -1476,14 +1475,11 @@
         #shc-wishlist-progress.loading .shc-wishlist-progress-icon { animation: shc-funnel-spin 2s linear infinite; }
         @keyframes shc-funnel-spin { to { transform: rotate(360deg); } }
 
-        .shc-mobile .shc-summary { margin: 4px 0 10px; }
+        .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
         .shc-mobile #shc-sale-countdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
-            font-size: 12px; width: 100%; max-width: 100%; min-width: 0;
+            font-size: 12px; max-width: 100%; min-width: 0;
             white-space: normal; overflow-wrap: anywhere; }
-        .shc-mobile .shc-price.compact .shc-mobile-lowline,
-        .shc-mobile .shc-price.compact .shc-mobile-currentline { display: block; line-height: inherit; }
-        .shc-mobile .shc-price.compact .shc-mobile-lowline { white-space: normal; }
         .shc-mobile .shc-price.compact.purchase-inline { font-size: 11px; line-height: 1.2;
             white-space: nowrap; overflow: visible; display: flex; flex-direction: column;
             justify-content: center; gap: 1px; }
