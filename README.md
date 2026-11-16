@@ -2,7 +2,7 @@
 
 一个免费的用户脚本，用于增强 Steam 愿望单页面。
 
-它仅作用于 Steam 愿望单页面（`*://store.steampowered.com/wishlist/*`），并在愿望单中添加以下功能：
+它仅作用于 Steam 愿望单页面[https://store.steampowered.com/wishlist]，并在愿望单中添加以下功能：
 
 ### 愿望单
 
