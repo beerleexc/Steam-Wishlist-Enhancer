@@ -4,7 +4,7 @@
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.5.2
+// @version     1.5.3
 // @include     *://store.steampowered.com/wishlist/*
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
@@ -31,13 +31,13 @@
         zh: {
             switchRegion: "切换查询地区", networkError: "网络错误", requestTimeout: "请求超时",
             winter: "❄️ 冬季特卖", spring: "🌱 春季特卖", summer: "☀️ 夏季特卖", autumn: "🍂 秋季特卖",
-            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败",
+            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败，暂无法折算人民币",
             lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低", current: "当前", regionLocked: "锁区",
             saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项史低中`,
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
             missing: n => `${n} 项暂无数据`,
             loaded: n => `已加载 ${n} 项`, backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
-            startsIn: "距开始", endsIn: "距结束", days: " 天 ", hours: " 时 ", minutes: " 分",
+            startsIn: "距开始", endsIn: "距结束", days: "天", hours: "时", minutes: "分",
             native: value => `（${value}）`,
             saleTitle: (sale, start, end) => `${sale.label} 太平洋时间 ${formatSaleDate(start)} 开幕 — ${formatSaleDate(end)} 收摊｜北京 ${new Date(start).toLocaleString("zh-CN")} — ${new Date(end).toLocaleString("zh-CN")}`
         },
@@ -50,7 +50,7 @@
             includes: value => `Includes ${value} prices`, noLow: n => `⚠ No data for ${n} ${n === 1 ? "item" : "items"}`,
             missing: n => `${n} items unavailable`,
             loaded: n => `${n} loaded`, backToTop: "Back to top", backToTopTitle: "Back to top",
-            startsIn: "Starts in", endsIn: "Ends in", days: " d ", hours: " h ", minutes: " m",
+            startsIn: "Starts in", endsIn: "Ends in", days: "d", hours: "h", minutes: "m",
             native: value => ` (${value})`,
             saleTitle: (sale, start, end) => `${sale.label} | PT: ${formatSaleDate(start)} — ${formatSaleDate(end)} | Local: ${new Date(start).toLocaleString("en-US")} — ${new Date(end).toLocaleString("en-US")}`
         }
@@ -926,10 +926,9 @@
             return b.appendChild(document.createTextNode(""));
         };
         cdSignature = `${sale.label}|${sale.startMs}|${sale.endMs}`;
-        add("shc-cd-name", `${sale.label} `);
-        add("shc-cd-date", `${formatSaleDate(sale.startMs)} — ${formatSaleDate(sale.endMs)} `);
+        add("shc-cd-name", sale.label);
+        add("shc-cd-date", `${formatSaleDate(sale.startMs)} — ${formatSaleDate(sale.endMs)}`);
         cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? T.endsIn : T.startsIn) };
-        countdownEl.appendChild(document.createTextNode(" "));
         cdNodes.days = num();
         add("shc-cd-unit", T.days);
         cdNodes.hours = num();
@@ -1483,17 +1482,17 @@
             font-size: 11.5px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
             -webkit-user-select: text; user-select: text; position: sticky; top: 0; z-index: 900; }
         .shc-summary .label, .shc-summary .dim { color: #8b929a; }
-        .shc-summary .main { color: #66c0f4; }
-        .shc-summary .cur { color: #fff; }
+        .shc-summary .main { color: #66c0f4; font-weight: 600; }
+        .shc-summary .cur { color: #fff; font-weight: 600; }
         .shc-summary .save { color: #a5cb00; }
         .shc-summary .warn { color: #ffc53d; }
         .shc-summary-body { display: contents; }
         #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
             flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
-        #shc-sale-countdown { white-space: nowrap; line-height: 1.25; }
-        #shc-sale-countdown .shc-cd-date { color: #66c0f4; }
+        #shc-sale-countdown { display: inline-flex; align-items: baseline; gap: 1.5px; font-size: 12px; white-space: nowrap; line-height: 1.25; }
+        #shc-sale-countdown .shc-cd-date { color: #66c0f4; font-weight: 600; }
         #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; }
-        #shc-sale-countdown .shc-cd-num { color: #8b5cf6; }
+        #shc-sale-countdown .shc-cd-num { color: #8b5cf6; font-weight: 600; }
         #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 25px);
             z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 24px;
             background: rgba(23,29,37,.70); border: 1px solid rgba(255,255,255,.12); border-radius: 5px;
