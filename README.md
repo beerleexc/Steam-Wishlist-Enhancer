@@ -1,4 +1,4 @@
-# ！[](assets/icon.svg)Steam 愿望单增强（Steam Wishlist Enhancer)
+ ！[](assets/icon.svg) #Steam 愿望单增强（Steam Wishlist Enhancer)
 
 一个免费的用户脚本，用于增强 Steam 愿望单页面。
 
