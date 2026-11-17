@@ -50,6 +50,8 @@
 
 ![客户端适配](assets/CleanShot_12.24.48.png)
 
+![折扣倒计时](assets/CleanShot_00.21.14.png)
+
 ## 使用与安装
 
 ### 用户脚本管理器。
