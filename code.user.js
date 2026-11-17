@@ -4,7 +4,7 @@
 // @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.6.0
+// @version     1.7.0
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @grant       GM_xmlhttpRequest
@@ -37,9 +37,10 @@
             empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败，暂无法折算人民币",
             lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低", current: "当前", regionLocked: "锁区",
             saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项史低中`,
+            showLow: "展开史低游戏", hideLow: "收起史低游戏",
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
             missing: n => `${n} 项暂无数据`, loadingWishlist: "正在加载愿望单…",
-            checked: (m, n) => `已检查 ${m} / 共 ${n}`,
+            checked: (m, n) => `已加载 ${m} / 共 ${n}`,
             backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
             startsIn: "距开始", endsIn: "距结束", days: "天", hours: "时", minutes: "分", seconds: "秒",
             discountLeft: "促销截止：", discountEndsAt: value => `折扣截止：${value}`,
@@ -52,6 +53,7 @@
             empty: "📊 Wishlist is empty", ratesMissing: "⚠ Exchange rates unavailable; CNY conversion is disabled",
             lowTotal: "Historical low total", currentTotal: "Current total", lowest: "Low ", current: "Current ", regionLocked: "Region locked",
             saveAtLow: value => `Save ${value} at historical lows`, atLow: n => `${n} at historical low`,
+            showLow: "Show historical-low games", hideLow: "Hide historical-low drawer",
             includes: value => `Includes ${value} prices`, noLow: n => `⚠ No data for ${n} ${n === 1 ? "item" : "items"}`,
             missing: n => `${n} items unavailable`, loadingWishlist: "Loading wishlist…",
             checked: (m, n) => `Checked ${m} / ${n}`,
@@ -439,6 +441,9 @@
     let lastRequestAt = 0;
     let countryControls = null;
     let countdownEl = null;
+    let lowOnly = false;
+    let steamMenuTemplate = null;
+    const STEAM_MENU_ACTIVE_CLASS = "NmzlVu-XMK4-";
     function loadPriceCache() {
         const bucket = priceBuckets[currentCountry.toUpperCase()] || {};
         const now = Date.now();
@@ -632,12 +637,14 @@
         return null;
     }
     let countAnchor = null;
+    let nativeLowCountNode = null;
+    let nativeLowCountText = "";
     let countScanAt = 0;
     function scanCountNode() {
         const now = Date.now();
-        if (countAnchor && countAnchor.isConnected && now - countScanAt < 3e3) return countAnchor;
+        const scope = rowsHost()?.closest("section") || document.querySelector("#StoreTemplate, #wishlist_index_content, .wishlist_content, #footer_search_results") || document.querySelector("#content") || document.body;
+        if (countAnchor && countAnchor.isConnected && scope.contains(countAnchor) && now - countScanAt < 3e3) return countAnchor;
         countScanAt = now;
-        const scope = document.querySelector("#wishlist_index_content, .wishlist_content, #footer_search_results") || document.querySelector("#content") || document.body;
         let best = null, bestScore = -Infinity, bestCount = -1, bestLength = Infinity;
         const consider = node => {
             if (node.closest(OWN_SELECTOR)) return;
@@ -660,13 +667,17 @@
         return best;
     }
     function findCountNode() {
-        if (countAnchor && countAnchor.isConnected && readCountFromText(countAnchor.textContent) != null) return countAnchor;
+        const scope = rowsHost()?.closest("section");
+        if (countAnchor && countAnchor.isConnected && (!scope || scope.contains(countAnchor)) && readCountFromText(countAnchor.textContent) != null) return countAnchor;
         countAnchor = scanCountNode();
         return countAnchor;
     }
     function readExpectedCount() {
         const anchor = findCountNode();
-        return anchor ? readCountFromText(anchor.textContent) || 0 : 0;
+        if (!anchor) return 0;
+        const replaced = lowOnly && nativeLowCountNode && (anchor === nativeLowCountNode || anchor.contains(nativeLowCountNode));
+        const text = replaced ? nativeLowCountText : anchor.textContent;
+        return readCountFromText(text) || 0;
     }
     function refreshExpected() {
         expectedCount = serverWishlistLoaded ? Math.max(expectedCount, wishlistIds.size) : Math.max(expectedCount, readExpectedCount(), wishlistIds.size);
@@ -715,6 +726,7 @@
         queuePrices();
     }
     function isFilteredView() {
+        if (lowOnly) return true;
         for (const input of document.querySelectorAll("input:checked")) {
             if (input.name === "viewmode" || !/^(?:radio|checkbox)$/.test(input.type)) continue;
             const value = String(input.value).toLowerCase();
@@ -928,6 +940,9 @@
             box.id = "shc-wishlist-summary";
             box.className = "shc-summary";
             box.style.visibility = "hidden";
+            box.addEventListener("click", event => {
+                if (event.target.closest(".shc-low-toggle")) toggleLowOnlyDrawer();
+            });
             if (!insertSummary(box, host)) {
                 const anchor = findCountNode();
                 if (!anchor) return null;
@@ -965,7 +980,9 @@
             pendingWrite = setTimeout(() => writeIfChanged(el, html), 800);
             return;
         }
+        const restoreLowFocus = el.contains(document.activeElement) && document.activeElement.classList.contains("shc-low-toggle");
         el.innerHTML = html;
+        if (restoreLowFocus) el.querySelector(".shc-low-toggle")?.focus({ preventScroll: true });
     }
     let barSurface = "";
     let barSurfaceRow = null;
@@ -1129,6 +1146,78 @@
         if (!saleTimer) saleTimer = setInterval(tickCountdown, 2e4);
         if (!discountTimer) discountTimer = setInterval(updateDiscountTimes, 1e3);
     }
+    // ── 史低抽屉 ── 复用 Steam 原生游戏行，展开时隐藏非史低项目并补齐全量价格
+    function syncLowOnlyRow(row, ref, info) {
+        const r = ref || rowRef(row);
+        const data = info === undefined ? r && prices[r.key] : info;
+        const atLow = !!(data && isAtHistoricalLow(data.lowest, data.current));
+        row.classList.toggle("shc-at-low-row", atLow);
+        row.classList.toggle("shc-low-hidden", lowOnly && !atLow);
+    }
+    function syncLowOnly() {
+        document.querySelectorAll(ROW_SELECTOR).forEach(row => syncLowOnlyRow(row));
+        const host = rowsHost();
+        if (!host) return null;
+        if (!host.id) host.id = "shc-low-drawer";
+        host.classList.toggle("shc-low-drawer-open", lowOnly);
+        return host;
+    }
+    function restoreNativeLowCount() {
+        if (nativeLowCountNode && nativeLowCountNode.isConnected) {
+            if (nativeLowCountNode.textContent !== nativeLowCountText) nativeLowCountNode.textContent = nativeLowCountText;
+        }
+        nativeLowCountNode = null;
+        nativeLowCountText = "";
+    }
+    function syncNativeLowCount(count) {
+        if (!lowOnly) return restoreNativeLowCount();
+        let node = findCountNode();
+        if (node && node.children.length) {
+            let leaf = null;
+            textOwners(node, el => {
+                if (el.children.length || readCountFromText(el.textContent) == null) return;
+                if (!leaf || el.textContent.length < leaf.textContent.length) leaf = el;
+            });
+            node = leaf;
+        }
+        if (!node) return restoreNativeLowCount();
+        if (nativeLowCountNode !== node) {
+            restoreNativeLowCount();
+            nativeLowCountNode = node;
+            nativeLowCountText = node.textContent;
+        }
+        const text = nativeLowCountText.replace(/[\d][\d,.]*/, String(count));
+        if (node.textContent !== text) node.textContent = text;
+    }
+    function nativeMenuButtonHTML(text, expanded, controls, title) {
+        if (!steamMenuTemplate || !steamMenuTemplate.isConnected) {
+            steamMenuTemplate = [...document.querySelectorAll("#StoreTemplate button[aria-expanded]")].find(button =>
+                !button.closest(OWN_SELECTOR) && button.firstElementChild && button.querySelector('svg[viewBox="0 0 12 12"]')
+            ) || null;
+        }
+        const button = steamMenuTemplate ? steamMenuTemplate.cloneNode(true) : document.createElement("button");
+        button.classList.add("shc-low-toggle");
+        button.classList.toggle(STEAM_MENU_ACTIVE_CLASS, expanded);
+        button.setAttribute("type", "button");
+        button.setAttribute("aria-expanded", String(expanded));
+        button.setAttribute("aria-controls", controls);
+        button.setAttribute("title", title);
+        if (steamMenuTemplate) {
+            const label = button.firstElementChild;
+            [...label.childNodes].forEach(node => { if (node.nodeType === 3) node.remove(); });
+            label.prepend(document.createTextNode(text));
+        } else {
+            button.innerHTML = `<span>${text}</span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="none" role="presentation"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M5.81026 6.36084L8.50899 3.66211L9.6875 4.84062L5.81026 8.71786L1.93302 4.84062L3.11153 3.66211L5.81026 6.36084Z"></path></svg>`;
+        }
+        return button.outerHTML;
+    }
+    function toggleLowOnlyDrawer() {
+        lowOnly = !lowOnly;
+        renderSummary();
+        if (!lowOnly) return;
+        queuePrices();
+        scrollWishlistToTop();
+    }
     // ── 汇总栏渲染 ── 把 summarize() 的结果写入 #shc-wishlist-summary，debounce 200ms 触发
     function renderSummary() {
         const box = getSummaryBox();
@@ -1136,7 +1225,9 @@
         const body = summaryBody(box);
         placeControls(box);
         syncBarSurface(box);
+        const drawerHost = syncLowOnly();
         const s = summarize();
+        syncNativeLowCount(s.atLow);
         if (s.total === 0) {
             writeIfChanged(body, `<span class="dim">${collecting ? T.loadingWishlist : T.empty}</span>`);
             revealBar(box);
@@ -1154,7 +1245,8 @@
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
         if (s.noLow) parts.push(`<span class="warn">${T.noLow(s.noLow)}</span>`);
         if (s.missing) parts.push(`<span class="warn">${T.missing(s.missing)}</span>`);
-        writeIfChanged(body, (s.atLow > 0 ? `<span class="dim">${T.atLow(s.atLow)}</span>` : "") + parts.join(""));
+        const lowButton = s.atLow > 0 || lowOnly ? nativeMenuButtonHTML(T.atLow(s.atLow), lowOnly, drawerHost && drawerHost.id || "shc-low-drawer", lowOnly ? T.hideLow : T.showLow) : "";
+        writeIfChanged(body, lowButton + parts.join(""));
         revealBar(box);
         updateCollectionProgress();
     }
@@ -1668,6 +1760,7 @@
         const r = link && keyOfHref(link.href);
         if (!r) return;
         const info = prices[r.key];
+        syncLowOnlyRow(row, r, info);
         syncRowDiscountTime(row, info);
         const state = rowState(info);
         const existing = row.querySelector(".shc-price");
@@ -1763,6 +1856,7 @@
         return div;
     }
     function resetAndReload() {
+        lowOnly = false;
         generation++;
         wishlistIds.clear();
         pendingIds.clear();
@@ -1880,6 +1974,15 @@
         .shc-summary .save { color: #a5cb00; }
         .shc-summary .warn { color: #ffc53d; }
         .shc-summary-body { display: contents; }
+        .shc-summary .shc-low-toggle { flex-shrink: 0; margin: 0; font-weight: 600; font-size: 12px; }
+        .shc-low-toggle:not(.Focusable) { display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 5px; border: 0; background: transparent; color: #fff; font: inherit; cursor: pointer; }
+        .shc-low-toggle:not(.Focusable) > svg { width: 12px; height: 12px; }
+        .shc-low-toggle:not(.Focusable)[aria-expanded="true"] { color: #1a9fff; text-decoration: underline; text-underline-offset: 4px; }
+        .shc-low-hidden { display: none !important; }
+        .shc-low-drawer-open { box-sizing: border-box; padding: 6px;
+            border-radius: 4px; background: rgba(23,29,37,.35); animation: shc-low-drawer-in .18s ease-out; }
+        @keyframes shc-low-drawer-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
             flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
         #shc-sale-countdown { display: inline-flex; align-items: baseline; gap: 1.5px; font-size: 12px; white-space: nowrap; line-height: 1.25; }
@@ -1899,6 +2002,7 @@
         @keyframes shc-funnel-spin { to { transform: rotate(360deg); } }
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
+        .shc-mobile .shc-low-drawer-open { padding: 4px; }
         .shc-mobile #shc-sale-countdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
             font-size: 12px; max-width: 100%; min-width: 0;
