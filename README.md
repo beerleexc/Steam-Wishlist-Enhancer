@@ -2,7 +2,7 @@
   <h1>
     <img src="assets/icon.svg" width="32" height="32" 
          />
-    Steam 愿望单增强(Steam Wishlist Enhancer)
+    Steam Wishlist Enhancer
   </h1>
 </div>
 
