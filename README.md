@@ -47,18 +47,17 @@
 ---
 
 ## [效果展示](#使用目录)
-
 > **功能概览**
 > [<img src="assets/CleanShot_11.47.14.png" width="100%">](assets/CleanShot_11.47.14.png)
-
 > **国家切换**
 > [<img src="assets/IMG_3782.jpg" width="100%">](assets/IMG_3782.jpg)
-
 > **移动端与客户端适配**
 > [<img src="assets/IMG_3784.jpg" width="100%">](assets/IMG_3784.jpg)
 > [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
-
----
+> **只看史低功能**
+> [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
+> **购物车一键全部加购**
+> [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
 
 ## [使用与安装](#使用目录)
 
@@ -67,10 +66,7 @@
 > * **PC端**：推荐使用 [Tampermonkey](http://tampermonkey.net/)
 > * **iOS端**：推荐使用 [Stay](https://apps.apple.com/cn/app/stay-for-safari-%E7%94%A8%E6%88%B7%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA%E6%8F%92%E4%BB%B6/id1591620171)
 > * **Steam客户端**：推荐使用 [脚本猫](https://scriptcat.org/zh-CN)
-
-### [安装地址](#使用目录)
-点击前往 [Greasyfork 安装脚本](https://greasyfork.org/zh-CN/scripts/605431-steam%E6%84%BF%E6%9C%9B%E5%8D%95%E5%A2%9E%E5%BC%BA)
-
+> ## [安装地址](https://greasyfork.org/zh-CN/scripts/605431-steam%E6%84%BF%E6%9C%9B%E5%8D%95%E5%A2%9E%E5%BC%BA)
 ---
 
 ## [权限与数据来源](#使用目录)
@@ -89,7 +85,7 @@
 
 ## [说明](#使用目录)
 
-> [!CAUTION]
+> [!note]
 > **注意：**
 > 价格与史低数据仅供参考，最终价格以 Steam 结算页为准。第三方数据可能缺失、延迟或存在地区/货币误差。小黑盒对独联体、土耳其、阿根廷等地区价格存在取整，脚本会按 Steam 规则重算，但仍可能有误差。
 > 
