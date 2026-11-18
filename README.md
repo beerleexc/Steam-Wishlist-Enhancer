@@ -6,10 +6,13 @@
   </h1>
 </div>
 
-  <a target="_blank" href="https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases"><img src="https://img.shields.io/github/v/release/udecode/plate" /></a>
-  
-  <a target="_blank" href="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE"><img src="https://badgen.now.sh/badge/license/MIT" /></a>
-</div>
+
+[![Author](https://img.shields.io/badge/Author-beerleexc-blue.svg)](https://github.com/beerleexc)
+[![Release](https://img.shields.io/github/v/release/beerleexc/Steam-Wishlist-Enhancer?color=green)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases)
+[![MIT](https://img.shields.io/badge/license-MIT-orange.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)
+[![English](https://img.shields.io/badge/document-English-red.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.EN.md)
+[![支持](https://img.shields.io/badge/Windows-MacOS-navy.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.md)
+[![支持](https://img.shields.io/badge/Android-IOS-deeppink.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.md)
 
 > [!NOTE]
 > 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，所有数据仅供展示与参考，不会修改您的 Steam 账户数据，请放心使用。
