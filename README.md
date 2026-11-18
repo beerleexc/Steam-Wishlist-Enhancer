@@ -75,7 +75,8 @@
 ![只看史低](assets/CleanShot_11.45.20.png)
 
 ### 购物车一键全部加购
-<img src="assets/CleanShot_12.24.48.png" width="100%">
+![全部加购](assets/CleanShot_12.00.26.png)
+
 可以加购整个愿望单，开启“只看史低”时，仅把史低游戏加入购物车。
 
 
