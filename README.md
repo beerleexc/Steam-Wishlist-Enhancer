@@ -6,7 +6,7 @@
   </h1>
 </div>
 
-  <a target="_blank" href="https://github.com/udecode/plate/releases/latest"><img src="https://img.shields.io/github/v/release/udecode/plate" /></a>
+  <a target="_blank" href="https://github.com/Steam-Wishlist-Enhancer/releases/latest"><img src="https://img.shields.io/github/v/release/udecode/plate" /></a>
   
   <a target="_blank" href="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE"><img src="https://badgen.now.sh/badge/license/MIT" /></a>
 </div>
