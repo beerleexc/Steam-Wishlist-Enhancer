@@ -6,6 +6,7 @@
   </h1>
 </div>
 
+<div align="center">
 
 [![Author](https://img.shields.io/badge/Author-beerleexc-blue.svg)](https://github.com/beerleexc)
 [![Release](https://img.shields.io/github/v/release/beerleexc/Steam-Wishlist-Enhancer?color=green)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases)
@@ -13,9 +14,10 @@
 [![English](https://img.shields.io/badge/document-English-red.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.EN.md)
 [![支持](https://img.shields.io/badge/Windows-MacOS-navy.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.md)
 [![支持](https://img.shields.io/badge/Android-IOS-deeppink.svg)](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/README.md)
+</div>
 
 > [!NOTE]
-> 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，所有数据仅供展示与参考，不会修改您的 Steam 账户数据，请放心使用。
+> 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，> 脚本不会上传你的Steam账号、Cookie给第三方；所有请求均为获取公开价格、愿望单列表；账号已拥有游戏列表仅在本地浏览器读取，不会外传。脚本运行所需数据将储存在本地。。
 
 ## [目录导航](#目录导航)
 
@@ -67,12 +69,14 @@
 ### 功能概览
 <img src="assets/CleanShot_11.47.14.png" width="100%">
 自动加载愿望单游戏，显示当前价格、历史史低价；愿望单顶部汇总栏展示：史低合计、当前合计、预估节省金额。愿望单数量较多时，由于史低价格接口的限制，会优先抓取计算ID排序前100的游戏。余下游戏采取懒加载策略。
+价格数据会自动存入脚本存储，普通价格缓存30分钟，最长保留24小时，汇率缓存24小时，特卖信息缓存6小时，减少重复网络请求。切换地区、页面刷新会重新拉取价格。
 
 ### 国家切换
 <img src="assets/IMG_3782.jpg" width="100%">
 页面顶部汇总栏有地区下拉选择器，可切换国家。切换后会重新拉取对应地区价格。
 支持切换查询地区：中国🇨🇳、美国🇺🇸、印度🇮🇳、印尼🇮🇩、日本🇯🇵、乌克兰🇺🇦、俄罗斯🇷🇺、独联体🇦🇿、阿根廷🇦🇷、土耳其🇹🇷。
 按地区自动选择历史最低价来源：中国/美国/印度/印尼/日本使用 [ITAD](https://isthereanydeal.com/) ；乌克兰/俄罗斯/独联体/阿根廷/土耳其使用小黑盒 API。
+
 ### 移动端适配
 <img src="assets/IMG_3784.jpg" width="100%">
 
@@ -118,23 +122,22 @@
 
 ---
 
-## 🐛 问题反馈(#目录导航)
-如有 Bug、功能建议，欢迎提交 Issues
+## 🐛 [问题反馈](#目录导航)
+如有 Bug、功能建议，欢迎提交 [**Issues**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues)
 
-## 📝 [说明](#目录导航)
+## 📝 [使用说明](#目录导航)
 
 > [!note]
 > **注意：**
-> 价格与史低数据仅供参考，最终价格以 Steam 结算页为准。第三方数据可能缺失、延迟或存在地区/货币误差。小黑盒对独联体、土耳其、阿根廷等地区价格存在取整，脚本会按 Steam 规则重算，但仍可能有误差。
+> 价格与史低数据仅供参考，最终价格以 Steam 结算页为准。第三方数据可能缺失、延迟或存在地区/货币误差。
 > 价格数据会自动存入脚本存储，普通价格缓存30分钟，最长保留24小时，汇率缓存24小时，特卖信息缓存6小时，减少重复网络请求。切换地区、页面刷新会重新拉取价格。
-> 脚本不会上传你的Steam账号、Cookie给第三方；所有请求均为获取公开价格、愿望单列表；账号已拥有游戏列表仅在本地浏览器读取，不会外传。脚本运行所需数据将储存在本地。
 > 推荐愿望单总数在100时使用效果最佳，数量越多耗时越慢。默认一次性获取ID排序前100游戏的史低价格
 
 ---
 
 ## 📄 [开源协议](#目录导航)
-本项目基于[MIT License](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
+本项目基于[**MIT License**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
 
 
 作者：**beerlee**  
-版本：**1.8.0**
+版本：**1.8.1**
