@@ -1,29 +1,27 @@
 // ==UserScript==
-// @name        Steam愿望单增强（Steam Wishlist Enhancer）
+// @name        Steam Wishlist Enhancer
 // @namespace   https://github.com/beerleexc
-// @description Steam 愿望单增强 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
+// @description 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.7.0
+// @version     1.8.0
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
+// @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
 // @grant       GM_xmlhttpRequest
 // @grant       GM_setValue
 // @grant       GM_getValue
 // @grant       GM_addStyle
-// @grant       unsafeWindow
 // @connect     api.augmentedsteam.com
 // @connect     api.steampowered.com
 // @connect     api.xiaoheihe.cn
 // @connect     open.er-api.com
 // @connect     store.steampowered.com
-// @connect     steamcommunity.com
 // @connect     partner.steamgames.com
 // @run-at      document-end
 // ==/UserScript==
 (function () {
     "use strict";
-    // 单例守护，防止脚本被重复注入时跑多份
     if (document.documentElement.dataset.shcWishlistActive) return;
     document.documentElement.dataset.shcWishlistActive = "1";
 
@@ -42,6 +40,11 @@
             missing: n => `${n} 项暂无数据`, loadingWishlist: "正在加载愿望单…",
             checked: (m, n) => `已加载 ${m} / 共 ${n}`,
             backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
+            bulkAdd: "全部加购", bulkPreparing: "正在准备…", bulkAdding: n => `正在加购 ${n} 项…`,
+            bulkAdded: n => `已加购 ${n} 项`, bulkNone: "无可加购项目", bulkFailed: "加购失败，点击重试",
+            bulkViewChanged: "视图或地区已变化，请重新点击",
+            bulkScope: (low, n) => `一次加入${low ? "当前史低" : "整个愿望单"} ${n} 项；自动跳过免费、锁区、已拥有及重复项目`,
+            bulkSkipped: s => `跳过：已拥有 ${s.owned}，锁区 ${s.locked}，不可购买 ${s.unavailable}，重复 ${s.duplicate}，已加购 ${s.added}`,
             startsIn: "距开始", endsIn: "距结束", days: "天", hours: "时", minutes: "分", seconds: "秒",
             discountLeft: "促销截止：", discountEndsAt: value => `折扣截止：${value}`,
             native: value => `（${value}）`,
@@ -58,6 +61,11 @@
             missing: n => `${n} items unavailable`, loadingWishlist: "Loading wishlist…",
             checked: (m, n) => `Checked ${m} / ${n}`,
             backToTop: "Back to top", backToTopTitle: "Back to top",
+            bulkAdd: "Add all to cart", bulkPreparing: "Preparing…", bulkAdding: n => `Adding ${n} items…`,
+            bulkAdded: n => `Added ${n} items`, bulkNone: "Nothing to add", bulkFailed: "Failed — retry",
+            bulkViewChanged: "View or region changed; click again",
+            bulkScope: (low, n) => `Add ${n} ${low ? "historical-low" : "wishlist"} items in one request; skips free, locked, owned and duplicate items`,
+            bulkSkipped: s => `Skipped: ${s.owned} owned, ${s.locked} locked, ${s.unavailable} unavailable, ${s.duplicate} duplicates, ${s.added} already added`,
             startsIn: "Starts in", endsIn: "Ends in", days: "d", hours: "h", minutes: "m", seconds: "s",
             discountLeft: "Ends in: ", discountEndsAt: value => `Discount ends: ${value}`,
             native: value => ` (${value})`,
@@ -83,7 +91,7 @@
     ];
     const CURRENCY_SYMBOLS = { CNY: "¥", JPY: "¥", ...Object.fromEntries(CURRENCY_TABLE.map(([ , code, sym ]) => [ code, sym ])) };
     const ZERO_DECIMAL = new Set([ "JPY", "IDR" ]);
-    const STORE_VERSION = "v10";
+    const STORE_VERSION = "v11";
     const MIN_REQUEST_GAP = 1200;
     const CHUNK_SIZE = 50;
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -187,11 +195,11 @@
         return w > 0 && (w <= 720 || coarse && w <= 900);
     }
     // ── 价格数据源 ── 三路并行：augmentedsteam 多地区当前价 + Steam 原生价 + 小黑盒史低
-    function fetchPrices(chunk, country) {
+    function fetchPrices(chunk, country, subs = []) {
         return postJSON(location.protocol + "//api.augmentedsteam.com/prices/v2", {
             country: country.toUpperCase(),
             apps: chunk.app,
-            subs: [],
+            subs: subs,
             bundles: [],
             voucher: true,
             shops: [ 61 ]
@@ -235,6 +243,8 @@
                     cut: Number(po.discount_pct) > 0 ? Number(po.discount_pct) : 0,
                     regularCents: Number(po.original_price_in_cents ?? po.final_price_in_cents),
                     discountEndsAt: discountEndMs(po),
+                    packageid: Number(po.packageid) > 0 ? Number(po.packageid) : null,
+                    bundleid: Number(po.bundleid) > 0 ? Number(po.bundleid) : null,
                     preorder: !!it.is_coming_soon
                 };
             });
@@ -275,12 +285,12 @@
             };
         }).catch(() => null);
     }
-    // 串行请求小黑盒史低（每个 appid 间隔 200ms），结果合入 merged；失败或过期时复用 prices 缓存
     async function attachXhhLows(chunk, country, merged, gen) {
         for (const appid of chunk.app) {
             if (gen !== generation) return;
             const key = `app/${appid}`;
             if (!merged[key] || !merged[key].current) continue;
+            if (merged[key].lowest && merged[key].lowest.price) continue;
             const current = merged[key].current;
             const prev = prices[key];
             if (prev && prev.lowest && Date.now() - (prev.lowAt || 0) < XHH_LOW_TTL) {
@@ -304,7 +314,32 @@
             }
         }
     }
-    // aug 为主，steam 补齐：去掉 steam 不认识的条目，让 steam 的 regionLocked 覆盖 aug 的同名字段
+    // Augmented app 无史低时，用 best_purchase_option 中保留的 packageid 合并为一次 subs 请求。
+    async function attachPackageLows(chunk, country, merged, gen) {
+        const appsByPackage = new Map;
+        chunk.app.forEach(appid => {
+            const key = `app/${appid}`;
+            const entry = merged[key];
+            if (!entry || !entry.current || entry.lowest && entry.lowest.price) return;
+            const packageid = Number(entry.current.packageid);
+            if (!(packageid > 0)) return;
+            if (!appsByPackage.has(packageid)) appsByPackage.set(packageid, []);
+            appsByPackage.get(packageid).push(key);
+        });
+        if (!appsByPackage.size) return;
+        const packagePrices = await fetchPrices({ app: [] }, country, [ ...appsByPackage.keys() ]).catch(() => null);
+        if (gen !== generation || !packagePrices) return;
+        appsByPackage.forEach((keys, packageid) => {
+            const packageEntry = packagePrices[`sub/${packageid}`];
+            const lowest = packageEntry && packageEntry.lowest;
+            if (!lowest || !lowest.price) return;
+            keys.forEach(key => {
+                merged[key].lowest = lowest;
+                merged[key].lowAt = Date.now();
+            });
+        });
+    }
+    // aug 为主，steam 补齐
     function mergeRegionPrices(aug, steam) {
         if (!steam) return aug;
         Object.keys(aug).forEach(key => {
@@ -372,7 +407,7 @@
         return wrap;
     }
     const ROW_SELECTOR = "div.Panel[data-index], .wishlist_row[data-appid]";
-    const OWN_SELECTOR = "#shc-wishlist-summary, #shc-country-controls, #shc-wishlist-progress, .shc-price, .shc-release-discount-time";
+    const OWN_SELECTOR = "#shc-wishlist-summary, #shc-country-controls, #shc-wishlist-progress, #shc-bulk-cart, .shc-price, .shc-release-discount-time";
     const PRICE_KEY = "steamHistoryPrices";
     const PRICE_TTL = 30 * 60 * 1e3;
     const PRICE_KEEP = 24 * 60 * 60 * 1e3;
@@ -419,7 +454,6 @@
                     const width = entry.contentRect.width;
                     const widthChanged = fit.width === undefined || Math.abs(width - fit.width) > .5;
                     fit.width = width;
-                    // 价格块换行会改变行高；只对真实行宽变化重新适配，避免自我触发。
                     if (widthChanged && visibleRows.has(rowEl)) needsFit = true;
                 });
                 if (needsFit) runMobileFits();
@@ -443,6 +477,9 @@
     let countdownEl = null;
     let lowOnly = false;
     let steamMenuTemplate = null;
+    let bulkCartButton = null, bulkCartBusy = false, bulkCartStatus = null, bulkCartStatusTimer = null;
+    let ownedAccountPromise = null;
+    const bulkAdded = new Set;
     const STEAM_MENU_ACTIVE_CLASS = "NmzlVu-XMK4-";
     function loadPriceCache() {
         const bucket = priceBuckets[currentCountry.toUpperCase()] || {};
@@ -456,7 +493,8 @@
             const end = current && Number(current.discountEndsAt);
             const discountExpired = end > 0 && end <= now;
             const missingDiscountEnd = current && Number(current.cut) > 0 && current.discountEndsAt === undefined;
-            if (now - hit.savedAt < PRICE_TTL && !discountExpired && !missingDiscountEnd) {
+            const missingPurchase = current && current.packageid == null && current.bundleid == null;
+            if (now - hit.savedAt < PRICE_TTL && !discountExpired && !missingDiscountEnd && !missingPurchase) {
                 doneIds.add(key);
                 checkedIds.add(key);
             }
@@ -486,7 +524,6 @@
             if (r) wishlistIds.set(r.key, r);
         });
     }
-    // ── 愿望单采集 ── Steam API 全量 ID 优先，rgWishlist 和 DOM 行解析依次兜底
     const STEAM_ID_RE = /^7656119\d{10}$/;
     const withSteamAuth = (url, token) => token ? `${url}${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token)}` : url;
     function tokenFromConfig() {
@@ -516,11 +553,13 @@
         }
         if (sessionWebApiToken) return sessionWebApiToken;
         try {
-            const data = await getJSON({
-                url: "https://store.steampowered.com/pointssummary/ajaxgetasyncconfig",
-                headers: { Accept: "application/json" }
+            const resp = await fetch("https://store.steampowered.com/pointssummary/ajaxgetasyncconfig", {
+                headers: { Accept: "application/json" }, credentials: "include"
             });
-            sessionWebApiToken = data.data && data.data.webapi_token || "";
+            if (resp.ok) {
+                const data = await resp.json();
+                sessionWebApiToken = data.data && data.data.webapi_token || "";
+            }
         } catch {
             sessionWebApiToken = "";
         }
@@ -548,7 +587,6 @@
         ids.push(data && data.UserConfig && data.UserConfig.steamid);
         const fromSsr = ids.find(value => value && STEAM_ID_RE.test(value));
         if (fromSsr) return fromSsr;
-        // SSR 数据不可用时继续读取页面全局变量。
         const root = typeof unsafeWindow === "undefined" ? window : unsafeWindow;
         const candidates = [ root.g_rgProfileData && root.g_rgProfileData.steamid, root.g_steamID ];
         return candidates.find(value => value && STEAM_ID_RE.test(value)) || null;
@@ -586,13 +624,13 @@
         try {
             return await fetchSteamWishlistItems();
         } catch {
-            // API 不可用或未公开时，沿用原有数据源。
         }
         try {
-            const text = await request({
-                url: location.protocol + `//store.steampowered.com/dynamicstore/userdata/?_=${Date.now()}`,
-                headers: { "Cache-Control": "no-cache", Pragma: "no-cache" }
+            const resp = await fetch(location.protocol + `//store.steampowered.com/dynamicstore/userdata/?_=${Date.now()}`, {
+                headers: { "Cache-Control": "no-cache", Pragma: "no-cache" }, credentials: "include"
             });
+            if (!resp.ok) return null;
+            const text = await resp.text();
             const raw = (JSON.parse(text) || {}).rgWishlist;
             if (!raw || typeof raw !== "object") return null;
             let values = raw;
@@ -611,7 +649,6 @@
             return null;
         }
     }
-    // 判定当前愿望单是否属于已登录用户自己。命中时服务器列表直接当权威列表，跳过 DOM 子集校验
     function isOwnWishlist() {
         const data = readWishlistSsrData();
         const viewer = String(data && data.UserConfig && data.UserConfig.steamid || "");
@@ -719,7 +756,6 @@
             programmaticScroll = false;
         }
     }
-    // DOM 兜底：遍历已渲染的 div.Panel[data-index]，用链接里的 appid 提取游戏 key 并入 wishlistIds
     function syncRows() {
         harvest(document);
         observeRows();
@@ -743,10 +779,8 @@
         return false;
     }
     const compareWishlistKeys = (a, b) => Number(a.split("/")[1]) - Number(b.split("/")[1]);
-    // 队列调度：普通状态自动抓前 100 款并优先补充可见行；过滤态按 AppID 升序全量抓取
     function queuePrices() {
         const filtered = isFilteredView();
-        // 过滤态先等完整 ID 列表就绪，避免把初始 DOM 子集提前加入队列。
         if (filtered && collecting && !serverWishlistLoaded) return;
         const enqueue = key => {
             if (doneIds.has(key) || pendingIds.has(key)) return;
@@ -784,7 +818,7 @@
         }
         return chunk;
     }
-    // 抓价主循环：从 pendingIds 按 CHUNK_SIZE 分批拉 augmentedsteam + Steam 原生价 + 小黑盒史低，节流间隔 MIN_REQUEST_GAP
+    // 抓价主循环
     async function drainPrices() {
         if (draining) return;
         draining = true;
@@ -806,7 +840,9 @@
                 const ok = steam !== null;
                 const aug = augRaw || {};
                 mergeRegionPrices(aug, steam);
-                if (source === "xiaoheihe") await attachXhhLows(chunk, country, aug, gen);
+                if (useAug) await attachPackageLows(chunk, country, aug, gen);
+                if (gen !== generation) continue;
+                await attachXhhLows(chunk, country, aug, gen);
                 if (gen !== generation) continue;
                 const keys = chunk.app.map(id => `app/${id}`);
                 if (ok) keys.forEach(key => {
@@ -1232,6 +1268,7 @@
             writeIfChanged(body, `<span class="dim">${collecting ? T.loadingWishlist : T.empty}</span>`);
             revealBar(box);
             updateCollectionProgress();
+            updateBulkCartButton(s);
             return;
         }
         const noLowAtAll = s.counted > 0 && s.noLow === s.counted;
@@ -1249,8 +1286,214 @@
         writeIfChanged(body, lowButton + parts.join(""));
         revealBar(box);
         updateCollectionProgress();
+        updateBulkCartButton(s);
     }
-    // 进度提示：运行时显示实际完成检查的数量，跑空后恢复"返回顶部"静态
+    // ── 批量加购 ── 当前视图全量补齐购买映射，拥有状态过滤后一次 POST
+    function bulkTitleHost() {
+        const title = [ ...document.querySelectorAll("h1, h2") ].find(el => /愿望单|wishlist/i.test(el.textContent));
+        if (!title) return null;
+        const row = title.parentElement;
+        const container = row && row.parentElement;
+        const stacked = container && getComputedStyle(container).flexDirection === "column";
+        return (stacked ? [ row, container ] : [ container, row ])
+            .find(el => el && getComputedStyle(el).display === "flex") || null;
+    }
+    function ensureBulkCartButton() {
+        const host = bulkTitleHost();
+        if (!host) return null;
+        const stackedRow = getComputedStyle(host).flexDirection === "row" && host.parentElement
+            && getComputedStyle(host.parentElement).flexDirection === "column";
+        host.classList.toggle("shc-bulk-title-row", !!stackedRow);
+        if (!bulkCartButton) {
+            bulkCartButton = document.createElement("button");
+            bulkCartButton.id = "shc-bulk-cart";
+            bulkCartButton.type = "button";
+            bulkCartButton.className = "Focusable";
+            bulkCartButton.setAttribute("aria-live", "polite");
+            bulkCartButton.addEventListener("click", addBulkToCart);
+        }
+        if (bulkCartButton.parentElement !== host) host.appendChild(bulkCartButton);
+        return bulkCartButton;
+    }
+    function updateBulkCartButton(summary) {
+        const button = ensureBulkCartButton();
+        if (!button) return;
+        const count = lowOnly ? (summary || summarize()).atLow : wishlistIds.size;
+        const scope = T.bulkScope(lowOnly, count);
+        if (bulkCartBusy) {
+            button.disabled = true;
+            button.title = scope;
+            return;
+        }
+        const status = bulkCartStatus;
+        button.textContent = status ? status.text : T.bulkAdd;
+        button.disabled = !wishlistIds.size || !!(status && status.disabled);
+        button.title = [ status && status.title, scope ].filter(Boolean).join("\n");
+    }
+    function setBulkStatus(text, title, disabled, ms = 5000) {
+        clearTimeout(bulkCartStatusTimer);
+        bulkCartStatus = { text: text, title: title, disabled: disabled };
+        updateBulkCartButton();
+        bulkCartStatusTimer = setTimeout(() => {
+            bulkCartStatus = null;
+            updateBulkCartButton();
+        }, ms);
+    }
+    const accountIdSet = value => new Set((Array.isArray(value) ? value : Object.keys(value || {})).map(String));
+    function loadOwnedAccount() {
+        if (!ownedAccountPromise) {
+            ownedAccountPromise = fetch(`${location.origin}/dynamicstore/userdata/?_=${Date.now()}`, {
+                headers: { Accept: "application/json", "Cache-Control": "no-cache" }, credentials: "include"
+            }).then(r => r.ok ? r.json() : Promise.reject(new Error(T.networkError))).then(data => {
+                if (!data || !data.rgOwnedApps && !data.rgOwnedPackages) throw new Error(T.networkError);
+                return {
+                    apps: accountIdSet(data.rgOwnedApps),
+                    packages: accountIdSet(data.rgOwnedPackages),
+                    bundles: accountIdSet(data.rgOwnedBundles)
+                };
+            }).catch(error => {
+                ownedAccountPromise = null;
+                throw error;
+            });
+        }
+        return ownedAccountPromise;
+    }
+    function buildBulkBatch(keys, account) {
+        const items = [], seen = new Set;
+        const skipped = { owned: 0, locked: 0, unavailable: 0, duplicate: 0, added: 0 };
+        keys.forEach(key => {
+            const info = prices[key];
+            if (lowOnly && !isAtHistoricalLow(info && info.lowest, info && info.current)) return;
+            const appid = key.split("/")[1];
+            if (account.apps.has(appid)) {
+                skipped.owned++;
+                return;
+            }
+            if (info && info.regionLocked) {
+                skipped.locked++;
+                return;
+            }
+            const current = info && info.current;
+            if (!current || info.noPrice || !(Number(current.price && current.price.amount) > 0)) {
+                skipped.unavailable++;
+                return;
+            }
+            const type = current.packageid ? "subid" : current.bundleid ? "bundleid" : "";
+            const id = type === "subid" ? String(current.packageid) : type === "bundleid" ? String(current.bundleid) : "";
+            if (!type) {
+                skipped.unavailable++;
+                return;
+            }
+            if (type === "subid" && account.packages.has(id) || type === "bundleid" && account.bundles.has(id)) {
+                skipped.owned++;
+                return;
+            }
+            const token = `${type}/${id}`;
+            if (bulkAdded.has(token)) {
+                skipped.added++;
+                return;
+            }
+            if (seen.has(token)) {
+                skipped.duplicate++;
+                return;
+            }
+            seen.add(token);
+            items.push({ key: key, type: type, id: id });
+        });
+        return { items: items, skipped: skipped };
+    }
+    function bulkCartFields(items) {
+        const fields = items.length === 1 ? [ [ items[0].type, items[0].id ] ]
+            : items.map(item => [ `${item.type}[]`, item.id ]);
+        fields.push([ "action", "add_to_cart" ]);
+        return fields;
+    }
+    async function postBulkCart(items) {
+        const body = new URLSearchParams;
+        bulkCartFields(items).forEach(([ key, value ]) => body.append(key, value));
+        const resp = await fetch(`${location.origin}/cart/addtocart`, {
+            method: "POST", body: body, credentials: "include"
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return resp.json();
+    }
+    function nativeAccountLink(root, section) {
+        return [ ...root.querySelectorAll("a[href]") ].find(link => {
+            if (!link.querySelector("svg")) return false;
+            try {
+                const url = new URL(link.getAttribute("href"), location.origin);
+                return url.origin === location.origin && new RegExp(`^/${section}/?$`).test(url.pathname);
+            } catch (_) {
+                return false;
+            }
+        }) || null;
+    }
+    async function syncNativeCartLink() {
+        let resp;
+        try { resp = await fetch(location.href, { credentials: "include", cache: "no-store" }); }
+        catch { return; }
+        if (!resp.ok) return;
+        const freshDocument = new DOMParser().parseFromString(await resp.text(), "text/html");
+        const freshCart = nativeAccountLink(freshDocument, "cart");
+        if (!freshCart) return;
+        const currentCart = nativeAccountLink(document, "cart");
+        if (currentCart) {
+            currentCart.replaceWith(document.importNode(freshCart, true));
+            return;
+        }
+        const freshWishlist = nativeAccountLink(freshDocument, "wishlist");
+        const currentWishlist = nativeAccountLink(document, "wishlist");
+        if (!freshWishlist || !currentWishlist) return;
+        const freshGroup = freshWishlist.parentElement;
+        const currentGroup = currentWishlist.parentElement;
+        if (freshGroup && currentGroup) currentGroup.replaceWith(document.importNode(freshGroup, true));
+    }
+    async function waitForBulkPrices() {
+        while (collecting) await sleep(200);
+        wishlistIds.forEach((item, key) => {
+            const current = prices[key] && prices[key].current;
+            const missingPurchase = current && current.packageid == null && current.bundleid == null;
+            if (!pendingIds.has(key) && (!doneIds.has(key) || missingPurchase)) {
+                doneIds.delete(key);
+                pendingIds.set(key, item);
+            }
+        });
+        drainPrices();
+        while (draining || pendingIds.size) await sleep(200);
+    }
+    async function addBulkToCart() {
+        if (bulkCartBusy) return;
+        const view = lowOnly, run = generation;
+        clearTimeout(bulkCartStatusTimer);
+        bulkCartStatus = null;
+        bulkCartBusy = true;
+        updateBulkCartButton();
+        if (bulkCartButton) bulkCartButton.textContent = T.bulkPreparing;
+        try {
+            const [ , account ] = await Promise.all([ waitForBulkPrices(), loadOwnedAccount() ]);
+            if (view !== lowOnly || run !== generation) throw new Error(T.bulkViewChanged);
+            const batch = buildBulkBatch([ ...wishlistIds.keys() ], account);
+            if (!batch.items.length) {
+                setBulkStatus(T.bulkNone, T.bulkSkipped(batch.skipped), true);
+                return;
+            }
+            if (bulkCartButton) bulkCartButton.textContent = T.bulkAdding(batch.items.length);
+            const data = await postBulkCart(batch.items);
+            if (!data || !data.success) {
+                const detail = data && typeof data.contents === "string" ? data.contents : T.networkError;
+                throw new Error(detail);
+            }
+            batch.items.forEach(item => bulkAdded.add(`${item.type}/${item.id}`));
+            syncNativeCartLink().catch(() => {});
+            setBulkStatus(T.bulkAdded(batch.items.length), T.bulkSkipped(batch.skipped), true);
+        } catch (error) {
+            ownedAccountPromise = null;
+            setBulkStatus(T.bulkFailed, error && error.message || T.networkError, false, 8000);
+        } finally {
+            bulkCartBusy = false;
+            updateBulkCartButton();
+        }
+    }
     function updateCollectionProgress() {
         let checked = 0;
         for (const key of wishlistIds.keys()) if (checkedIds.has(key)) checked++;
@@ -1287,7 +1530,6 @@
             }
         } finally {
             collecting = Math.max(0, collecting - 1);
-            // 完整 ID 接口不可用时，按已采集到的 ID 继续完成过滤态队列。
             if (isFilteredView()) queuePrices();
             renderSummary();
         }
@@ -1585,7 +1827,6 @@
         if (!areas || areas === "none") return null;
         const purchaseRow = (areas.match(/"[^"]+"/g) || []).find(area => /\bpurchase\b/.test(area));
         if (!purchaseRow) return null;
-        // Steam 移动布局中购买区独占网格行，桌面布局中只占据一个网格单元。
         return (purchaseRow.match(/\bpurchase\b/g) || []).length > 1;
     }
     const DISCOUNT_PURCHASE_STYLES = [ "position", "paddingTop" ];
@@ -1715,9 +1956,7 @@
         const categoryRow = categoryLabel && categoryLabel.parentElement;
         const gap = categoryRow ? releaseRect.top - categoryRow.getBoundingClientRect().bottom : 24;
         const height = releaseRect.height || 16;
-        // 不占文档流；在类别行与发行日期行的原有间隙内垂直居中。
         const top = gap >= height ? -(gap + height) / 2 : -(height + 4);
-        // 部分 Steam 标签没有独立布局框，此时回退到发行日期行的左边缘。
         el.style.left = `${Math.max(0, labelRect.left - releaseRect.left)}px`;
         el.style.top = `${Math.round(top * 100) / 100}px`;
         el.style.height = `${height}px`;
@@ -1775,7 +2014,6 @@
             existing.remove();
         }
         insertPriceLine(row, link, info, state);
-        // 新建价格块后再次同步，确保移动端倒计时进入价格块第一行。
         syncRowDiscountTime(row, info);
     }
     let paintQueued = false;
@@ -1888,6 +2126,7 @@
         const previous = lastMobile;
         lastMobile = mobile;
         lastSteamMobile = steamMobile;
+        updateBulkCartButton();
         if (previous === null || mobile === previous && !steamChanged) return;
         const countdownRows = new Set();
         document.querySelectorAll(".shc-discount-time").forEach(el => {
@@ -1898,6 +2137,16 @@
         mobileFits.clear();
         countdownRows.forEach(row => paintRow(row));
         paintVisibleRows();
+    }
+    const dismissedCartDialogs = new WeakSet;
+    function dismissSteamCartDialogs() {
+        document.querySelectorAll("dialog").forEach(dialog => {
+            if (!dialog.querySelector(".AhNg9jT4hrc-") || dismissedCartDialogs.has(dialog) && !dialog.open) return;
+            dismissedCartDialogs.add(dialog);
+            const closeButton = dialog.querySelector("button");
+            if (closeButton) closeButton.click();
+            if (dialog.open && typeof dialog.close === "function") dialog.close();
+        });
     }
     function isOwnNode(node) {
         const el = node.nodeType === 1 ? node : node.parentElement;
@@ -1934,10 +2183,15 @@
         // 全局 Observer：站点 DOM 变更时 debounce 触发 syncRows，同时兜住被 React 重建掉的汇总栏
         new MutationObserver(records => {
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
+            if (bulkCartButton && !bulkCartButton.isConnected) updateBulkCartButton();
             const external = records.filter(r => !isOwnRecord(r));
             if (external.some(r => r.type === "childList")) scheduleHarvest();
             if (external.length && mobileFits.size) runMobileFits();
         }).observe(document.body, { childList: true, characterData: true, subtree: true });
+        new MutationObserver(dismissSteamCartDialogs).observe(document.body, {
+            childList: true, subtree: true, attributes: true, attributeFilter: [ "open" ]
+        });
+        dismissSteamCartDialogs();
     }
     // ── 样式注入 ── 全部选择器加 .shc- 前缀避免冲突；移动端规则集中在 .shc-mobile 媒体标记下
     GM_addStyle(`
@@ -1983,6 +2237,12 @@
         .shc-low-drawer-open { box-sizing: border-box; padding: 6px;
             border-radius: 4px; background: rgba(23,29,37,.35); animation: shc-low-drawer-in .18s ease-out; }
         @keyframes shc-low-drawer-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        #shc-bulk-cart { flex: 0 0 auto; box-sizing: border-box; min-height: 32px; margin-left: auto;
+            padding: 0 14px; border: 0; border-radius: 2px; cursor: pointer;
+            background: linear-gradient(90deg, #6fa720, #8fbf3f); color: #d2efa9;
+            font: 600 12px 'Motiva Sans', Arial, sans-serif; white-space: nowrap; }
+        #shc-bulk-cart:hover:not(:disabled) { background: linear-gradient(90deg, #82b92c, #a0ce4e); color: #fff; }
+        #shc-bulk-cart:disabled { opacity: .45; cursor: default; }
         #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
             flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
         #shc-sale-countdown { display: inline-flex; align-items: baseline; gap: 1.5px; font-size: 12px; white-space: nowrap; line-height: 1.25; }
@@ -2003,6 +2263,8 @@
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
         .shc-mobile .shc-low-drawer-open { padding: 4px; }
+        .shc-mobile .shc-bulk-title-row { align-self: stretch; }
+        .shc-mobile #shc-bulk-cart { min-height: 30px; padding: 0 10px; font-size: 11px; }
         .shc-mobile #shc-sale-countdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
         .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
             font-size: 12px; max-width: 100%; min-width: 0;
