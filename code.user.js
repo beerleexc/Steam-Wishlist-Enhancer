@@ -4,7 +4,7 @@
 // @description 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.0
+// @version     1.8.1
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -38,7 +38,7 @@
             showLow: "展开史低游戏", hideLow: "收起史低游戏",
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
             missing: n => `${n} 项暂无数据`, loadingWishlist: "正在加载愿望单…",
-            checked: (m, n) => `已加载 ${m} / 共 ${n}`,
+            checked: (m, n) => `已加载 ${m}/${n}`,
             backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
             bulkAdd: "全部加购", bulkPreparing: "正在准备…", bulkAdding: n => `正在加购 ${n} 项…`,
             bulkAdded: n => `已加购 ${n} 项`, bulkNone: "无可加购项目", bulkFailed: "加购失败，点击重试",
@@ -2061,6 +2061,8 @@
         }
         window.scrollTo(options);
     }
+    // 加载中的慵懒猫：侧身坐姿、抬爪舔爪，单色剪影（跟随 currentColor）
+    const CAT_SPINNER = '<svg viewBox="120 120 784 784" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M 152.8,292.5 L 152.8,296.4 L 163.6,309.1 L 205.8,349.3 L 202.8,360.1 L 201.8,381.7 L 204.8,400.3 L 209.7,415.0 L 220.5,432.6 L 242.0,452.2 L 247.9,468.9 L 254.8,476.7 L 261.6,481.6 L 279.2,489.5 L 288.1,491.4 L 303.8,491.4 L 320.4,484.6 L 345.9,463.0 L 346.9,467.9 L 341.0,511.0 L 339.0,513.0 L 279.2,494.4 L 218.5,467.9 L 209.7,465.9 L 195.0,465.9 L 172.4,472.8 L 153.8,474.8 L 143.0,479.7 L 133.2,490.4 L 130.3,499.3 L 130.3,510.0 L 134.2,519.8 L 142.1,528.7 L 156.8,534.5 L 176.4,534.5 L 188.1,532.6 L 216.5,522.8 L 266.5,557.1 L 317.5,588.4 L 345.9,603.1 L 372.4,612.9 L 381.2,614.9 L 397.8,614.9 L 410.6,610.0 L 420.4,602.2 L 431.1,619.8 L 437.0,648.2 L 441.0,684.5 L 441.9,732.5 L 440.0,748.2 L 438.0,750.1 L 419.4,751.1 L 410.6,756.0 L 402.7,766.8 L 401.8,781.5 L 404.7,788.4 L 411.6,794.2 L 419.4,796.2 L 479.2,795.2 L 487.0,791.3 L 492.9,785.4 L 497.8,775.6 L 503.7,754.1 L 525.2,641.4 L 534.1,607.1 L 536.0,605.1 L 537.0,612.0 L 539.9,618.8 L 544.8,602.2 L 555.6,579.6 L 569.3,561.0 L 580.1,550.2 L 599.7,535.5 L 622.2,523.8 L 637.9,517.9 L 640.9,518.9 L 615.4,530.6 L 598.7,541.4 L 575.2,563.0 L 560.5,583.5 L 553.6,597.3 L 546.8,616.9 L 543.9,631.6 L 543.9,656.1 L 545.8,667.8 L 553.6,690.4 L 567.4,711.9 L 583.1,727.6 L 598.7,738.4 L 614.4,746.2 L 556.6,747.2 L 541.9,752.1 L 534.1,759.9 L 530.1,768.8 L 530.1,782.5 L 532.1,787.4 L 538.0,793.3 L 546.8,796.2 L 733.0,795.2 L 764.4,790.3 L 800.6,778.6 L 832.0,760.9 L 859.4,735.4 L 874.1,713.9 L 886.8,683.5 L 891.8,661.9 L 893.7,643.3 L 891.8,607.1 L 886.8,585.5 L 878.0,562.0 L 870.2,547.3 L 856.5,528.7 L 839.8,513.0 L 822.2,502.2 L 816.3,474.8 L 806.5,446.3 L 792.8,417.9 L 776.1,391.5 L 760.4,371.9 L 740.8,352.3 L 707.5,328.7 L 684.0,317.0 L 656.5,307.2 L 637.0,302.3 L 605.6,298.4 L 563.5,300.3 L 495.8,316.0 L 467.4,315.0 L 454.7,311.1 L 443.9,305.2 L 414.5,280.7 L 397.8,269.9 L 385.1,264.1 L 370.4,260.1 L 354.7,249.4 L 339.0,241.5 L 315.5,232.7 L 295.9,227.8 L 288.1,228.8 L 285.1,232.7 L 283.2,242.5 L 283.2,265.0 L 259.7,273.9 L 245.9,285.6 L 231.2,283.7 L 178.3,285.6 L 156.8,288.6 Z M 823.2,576.7 L 833.0,595.3 L 838.8,620.8 L 837.8,650.2 L 831.0,672.7 L 816.3,696.2 L 797.7,713.9 L 775.1,726.6 L 748.7,734.5 L 747.7,733.5 L 771.2,714.9 L 784.9,700.2 L 803.5,671.7 L 813.3,648.2 L 819.2,625.7 L 822.2,604.1 Z"/></svg>';
     function getProgressDiv(create = true) {
         const all = document.querySelectorAll("#shc-wishlist-progress");
         if (all.length) {
@@ -2077,7 +2079,13 @@
         div.tabIndex = 0;
         const icon = document.createElement("span");
         icon.className = "shc-wishlist-progress-icon";
-        icon.textContent = "⏳";
+        const cat = document.createElement("span");
+        cat.className = "shc-cat";
+        cat.innerHTML = CAT_SPINNER;
+        const arrow = document.createElement("span");
+        arrow.className = "shc-arrow";
+        arrow.textContent = "↑";
+        icon.append(cat, arrow);
         const label = document.createElement("span");
         label.className = "shc-wishlist-progress-text";
         div.append(icon, label);
@@ -2256,10 +2264,15 @@
             font-size: 12px; line-height: 1.3; color: #acb2b8; display: none; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
         #shc-wishlist-progress.show { display: flex; }
         #shc-wishlist-progress:hover { background: rgba(23,29,37,.88); border-color: rgba(255,255,255,.24); }
-        #shc-wishlist-progress .shc-wishlist-progress-icon { display: inline-block; flex: 0 0 auto; font-size: .9em; }
+        #shc-wishlist-progress .shc-wishlist-progress-icon { display: inline-flex; align-items: center; flex: 0 0 auto; }
         #shc-wishlist-progress .shc-wishlist-progress-text { min-width: 0; }
-        #shc-wishlist-progress.loading .shc-wishlist-progress-icon { animation: shc-funnel-spin 2s linear infinite; }
-        @keyframes shc-funnel-spin { to { transform: rotate(360deg); } }
+        #shc-wishlist-progress .shc-cat { display: none; width: 15px; height: 15px; color: #e8ebee; }
+        #shc-wishlist-progress .shc-cat svg { display: block; width: 100%; height: 100%; }
+        #shc-wishlist-progress .shc-arrow { font-size: 11px; line-height: 1; color: #acb2b8; }
+        #shc-wishlist-progress.loading .shc-cat { display: block; }
+        #shc-wishlist-progress.loading .shc-arrow { display: none; }
+        #shc-wishlist-progress.loading .shc-cat svg { animation: shc-cat-spin 3.4s cubic-bezier(.42,0,.58,1) infinite; }
+        @keyframes shc-cat-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
         .shc-mobile .shc-low-drawer-open { padding: 4px; }
