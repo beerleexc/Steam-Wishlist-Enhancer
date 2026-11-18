@@ -1,4 +1,3 @@
-[![Translate to English](https://img.shields.io/static/v1?label=Translate&message=to%20English&color=blue&logo=googletranslate&logoColor=white&labelColor=grey&messageColor=white)](https://translate.google.com/translate?hl=en&sl=zh-CN&tl=en&u=[https://[https://github.com/beerleexc/Steam-Wishlist-Enhancer/main/README.md)]"Google Translate]
 <div align="center">
   <h1>
     <img src="assets/icon.svg" width="32" height="32" 
