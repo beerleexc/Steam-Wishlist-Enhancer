@@ -34,7 +34,6 @@
 ---
 
 ## [核心功能](#使用目录)
-
 ### [史低查询](#使用目录)
 - 在愿望单中直接显示每个游戏的多地区当前价格与历史最低价。
 - 支持切换查询地区：中国🇨🇳、美国🇺🇸、印度🇮🇳、印尼🇮🇩、日本🇯🇵、乌克兰🇺🇦、俄罗斯🇷🇺、独联体🇦🇿、阿根廷🇦🇷、土耳其🇹🇷。
@@ -54,20 +53,26 @@
 ---
 
 ## [效果展示](#使用目录)
-> [**功能概览**](#使用目录)
-> <img src="assets/CleanShot_11.47.14.png" width="100%">
-> [**国家切换**](#使用目录)
-> <img src="assets/IMG_3782.jpg" width="100%">
-> **移动端适配**
-> <img src="assets/IMG_3784.jpg" width="100%">
-> **客户端适配**
-> ![客户端适配](assets/CleanShot_12.24.48.png)
-> **折扣倒计时**
-> ![折扣倒计时](assets/CleanShot_00.21.14.png)
-> **只看史低**
-> ![只看史低](assets/CleanShot_11.45.20.png)
-> **购物车一键全部加购**
-> <img src="assets/CleanShot_12.24.48.png" width="100%">
+### 功能概览
+<img src="assets/CleanShot_11.47.14.png" width="100%">
+
+### 国家切换
+<img src="assets/IMG_3782.jpg" width="100%">
+
+### 移动端适配
+<img src="assets/IMG_3784.jpg" width="100%">
+
+### 客户端适配
+![客户端适配](assets/CleanShot_12.24.48.png)
+
+### 折扣倒计时
+![折扣倒计时](assets/CleanShot_00.21.14.png)
+
+### 只看史低
+![只看史低](assets/CleanShot_11.45.20.png)
+
+### 购物车一键全部加购
+<img src="assets/CleanShot_12.24.48.png" width="100%">
 
 ## [使用与安装](#使用目录)
 
