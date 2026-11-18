@@ -38,7 +38,8 @@
 > * [使用与安装](#使用与安装)
 > * [权限与数据来源](#权限与数据来源)
 > * [说明](#说明)
-> * [License](#license)
+> * [问题反馈]
+> * [开源协议](#license)
 
 ---
 
@@ -126,9 +127,9 @@
 
 ---
 
-## 📄 [License](#使用目录)
+## 📄 [开源协议](#使用目录)
+本项目基于[MIT License](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
 
-[MIT](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)
 
 作者：**beerlee**  
 版本：**1.8.0**
