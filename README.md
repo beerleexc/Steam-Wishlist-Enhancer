@@ -6,6 +6,11 @@
   </h1>
 </div>
 
+  <a target="_blank" href="https://github.com/udecode/plate/releases/latest"><img src="https://img.shields.io/github/v/release/udecode/plate" /></a>
+  
+  <a target="_blank" href="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE"><img src="https://badgen.now.sh/badge/license/MIT" /></a>
+</div>
+
 > [!NOTE]
 > 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，所有数据仅供展示与参考，不会修改您的 Steam 账户数据，请放心使用。
 
