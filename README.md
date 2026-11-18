@@ -47,17 +47,20 @@
 ---
 
 ## [效果展示](#使用目录)
-> **功能概览**
-> [<img src="assets/CleanShot_11.47.14.png" width="100%">](assets/CleanShot_11.47.14.png)
-> **国家切换**
-> [<img src="assets/IMG_3782.jpg" width="100%">](assets/IMG_3782.jpg)
-> **移动端与客户端适配**
-> [<img src="assets/IMG_3784.jpg" width="100%">](assets/IMG_3784.jpg)
-> [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
-> **只看史低功能**
-> [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
+> [**功能概览**](#使用目录)
+> <img src="assets/CleanShot_11.47.14.png" width="100%">
+> [**国家切换**](#使用目录)
+> <img src="assets/IMG_3782.jpg" width="100%">
+> **移动端适配**
+> <img src="assets/IMG_3784.jpg" width="100%">
+> **客户端适配**
+> ![客户端适配](assets/CleanShot_12.24.48.png)
+> **折扣倒计时**
+> ![折扣倒计时](assets/CleanShot_00.21.14.png)
+> **只看史低**
+> ![只看史低](assets/CleanShot_11.45.20.png)
 > **购物车一键全部加购**
-> [<img src="assets/CleanShot_12.24.48.png" width="100%">](assets/CleanShot_12.24.48.png)
+> <img src="assets/CleanShot_12.24.48.png" width="100%">
 
 ## [使用与安装](#使用目录)
 
