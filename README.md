@@ -143,16 +143,15 @@
 <a id="相关推荐"></a>
 # 🪁 相关推荐
 
-## pakku：Steam-Registerkey-Enhancer
+## beerlee：Steam-Registerkey-Enhancer
 作者: [beerlee](https://github.com/beerleexc)
 - [主页](https://s.xmcp.ltd/pakkujs/)
 - [GitHub](https://github.com/beerleexc/Steam-Registerkey-Enhancer)
 
-## Steam-Price-Converter
+## marioplus：Steam-Price-Converter
 作者: [marioplus](https://github.com/marioplus)
 - [GitHub](https://github.com/marioplus/steam-price-converter)
 - [GreasyFork](https://greasyfork.org/zh-CN/scripts/452504)
-
 
 <a id="支持一下"></a>
 # 💗 [支持作者](#目录导航)
