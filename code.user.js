@@ -4,7 +4,7 @@
 // @description Steam愿望单页面功能增强，可在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.3
+// @version     1.8.4
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -18,6 +18,7 @@
 // @connect     open.er-api.com
 // @connect     store.steampowered.com
 // @connect     partner.steamgames.com
+// @connect     steamcommunity.com
 // @run-at      document-end
 // ==/UserScript==
 (function () {
@@ -31,13 +32,13 @@
         zh: {
             switchRegion: "切换查询地区", networkError: "网络错误", requestTimeout: "请求超时",
             winter: "❄️ 冬季特卖", spring: "🌱 春季特卖", summer: "☀️ 夏季特卖", autumn: "🍂 秋季特卖",
-            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败，暂无法折算人民币",
-            lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低", current: "当前", regionLocked: "锁区",
-            saveAtLow: value => `等史低可省 ${value}`, atLow: n => `${n} 项史低中`,
+            empty: "📊 愿望单为空", ratesMissing: "⚠ 汇率获取失败",
+            lowTotal: "史低合计", currentTotal: "当前合计", lowest: "史低：", current: "当前：", regionLocked: "锁区",
+            saveAtLow: value => `等待史低可省 ${value}`, atLow: n => `${n} 项史低中`,
             showLow: "展开史低游戏", hideLow: "收起史低游戏",
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
             missing: n => `${n} 项暂无数据`, loadingWishlist: "正在加载愿望单…",
-            checked: (m, n) => `已加载 ${m}/${n}`, loaded: "加载完成",
+            checked: (m, n) => `已加载 ${m}/${n}`, checkedOnly: m => `已加载 ${m}`, loaded: "加载完成",
             backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
             bulkAdd: "全部加购", bulkPreparing: "正在准备…", bulkAdding: n => `正在加购 ${n} 项…`,
             bulkAdded: n => `已加购 ${n} 项`, bulkNone: "无可加购项目", bulkFailed: "加购失败，点击重试",
@@ -58,7 +59,7 @@
             showLow: "Show historical-low games", hideLow: "Hide historical-low drawer",
             includes: value => `Includes ${value} prices`, noLow: n => `⚠ No data for ${n} ${n === 1 ? "item" : "items"}`,
             missing: n => `${n} items unavailable`, loadingWishlist: "Loading wishlist…",
-            checked: (m, n) => `Checked ${m} / ${n}`, loaded: "Loading complete",
+            checked: (m, n) => `Checked ${m} / ${n}`, checkedOnly: m => `Checked ${m}`, loaded: "Loading complete",
             backToTop: "Back to top", backToTopTitle: "Back to top",
             bulkAdd: "Add all to cart", bulkPreparing: "Preparing…", bulkAdding: n => `Adding ${n} items…`,
             bulkAdded: n => `Added ${n} items`, bulkNone: "Nothing to add", bulkFailed: "Failed — retry",
@@ -1492,11 +1493,14 @@
         let checked = 0;
         for (const key of wishlistIds.keys()) if (checkedIds.has(key)) checked++;
         const busy = !!(collecting || draining || pendingIds.size > 0);
-        if (busy || !checked || checked < Math.max(wishlistIds.size, expectedCount)) {
+        // 分母用真实愿望单总数，不用已渲染条目数
+        const total = Math.max(wishlistIds.size, expectedCount);
+        if (busy || !checked || checked < total) {
             clearTimeout(progressCompletionTimer);
             progressCompletionTimer = null;
             progressCompleted = false;
-            if (busy && wishlistIds.size) return setProgress(T.checked(checked, wishlistIds.size), true);
+            // 总数未就绪时不显示分母，避免闪一个错误的总数
+            if (busy && total) return setProgress(serverWishlistLoaded ? T.checked(checked, total) : T.checkedOnly(checked), true);
             if (!checked) return hideProgress();
             return setProgress(T.backToTop, false);
         }
@@ -1678,10 +1682,24 @@
         }
         return null;
     }
+    // 史低/当前价格行沿用"发行日期"行的原生文字样式（字体随标签、值用白色、
+    // 史低/当前字样用标签灰色）；史低/锁区行保留脚本的加粗与蓝/红配色。
+    function applyNativePriceStyle(el, row) {
+        const label = directLabelOf(row, RELEASE_LABEL_RE);
+        if (!label) return;
+        const labelStyle = copyDiscountTextStyle(el, label, [ "fontFamily", "fontSize", "fontStyle", "lineHeight", "letterSpacing" ]);
+        if (el.classList.contains("at-low") || el.classList.contains("locked")) return;
+        el.style.fontWeight = labelStyle.fontWeight;
+        const value = label.nextElementSibling;
+        el.style.color = value ? getComputedStyle(value).color : labelStyle.color;
+        if (value) for (const part of el.querySelectorAll(".shc-price-label")) part.style.color = labelStyle.color;
+    }
     function insertPriceLine(row, link, info, state) {
-        const mobile = steamMobileLayout(row) ?? isMobileUI();
+        const mobile = isMobilePriceLayout(row);
         const el = createPriceElement(info, state, mobile);
-        el.dataset.sig = state === "price" ? priceSignature(info) : state;
+        applyNativePriceStyle(el, row);
+        // 布局模式也进签名，模式变化时强制重插
+        el.dataset.sig = `${state === "price" ? priceSignature(info) : state}${mobile ? "|m" : "|d"}`;
         el.dataset.layoutVersion = String(priceLayoutVersion);
         const anchor = titleLinkOf(row, link);
         const host = rowHost(row, anchor);
@@ -1692,7 +1710,12 @@
             const card = cardGridOf(row, leaf || item || anchor, true);
             const lower = card && [ ...card.children ].find(n => /\blower\b/.test(getComputedStyle(n).gridArea));
             if (lower) {
-                card.classList.add("shc-mobile-price-card");
+                // Steam 愿望单卡片在不同断点有两套网格：≤500px 是 6 行(tags/capsule/title/mid/lower/purchase)，
+                // 501~910px 是 4 行(title/mid/lower/purchase)。脚本移动端判定(≤720px)会同时命中两者，
+                // 把 6 行行高硬套到 4 行网格会让 lower/purchase 行被压小、内容溢出，故按实际行数选对应模板。
+                const rowCount = getComputedStyle(card).gridTemplateRows.split(" ").filter(Boolean).length;
+                card.classList.toggle("shc-mobile-price-card", rowCount === 6);
+                card.classList.toggle("shc-mobile-price-card-4", rowCount === 4);
                 lower.appendChild(el);
             }
             else {
@@ -1714,6 +1737,8 @@
             }
         }
         if (host === row) fallbackIntoRow(el, row, anchor);
+        // 直接挂到 grid 卡片上时，不指定跨列会被自动排到最窄的拖拽列，文字被挤成一字一行
+        if (getComputedStyle(host).display.includes("grid")) el.style.gridColumn = "1 / -1";
         host.appendChild(el);
     }
     function discountTimeText(end, now = Date.now()) {
@@ -1758,14 +1783,50 @@
         const title = T.discountEndsAt(new Date(end).toLocaleString(IS_ZH ? "zh-CN" : "en-US"));
         if (el.title !== title) el.title = title;
     }
-    function mobileDiscountHosts(row) {
-        const card = cardGridOf(row, row, true);
+    // 按 grid-area 名称取卡片网格的直接子格
+    function areaCellOf(row, name) {
+        const card = cardGridOf(row, row.querySelector("img") || row, true);
         if (!card) return null;
-        const cellOfArea = name => [ ...card.children ]
-            .find(cell => new RegExp(`\\b${name}\\b`).test(getComputedStyle(cell).gridArea));
-        return { capsule: cellOfArea("capsule"), title: cellOfArea("title") };
+        return [ ...card.children ].find(n => new RegExp(`\\b${name}\\b`).test(getComputedStyle(n).gridArea)) || null;
+    }
+    function mobileDiscountHosts(row) {
+        const capsule = areaCellOf(row, "capsule");
+        if (!capsule) return null;
+        return { capsule, title: areaCellOf(row, "title") };
+    }
+    // 无"我的类别"行的卡（好友愿望单）：倒计时右对齐落在 mid 格，与有类别行页面
+    // （placeDiscountOnCategoryLine 把倒计时挂进 mid 行）保持同一行位置；价格仍留在 lower。
+    // 倒计时以行内元素贴右排布（类别行与 mid 行共用）。
+    function styleDiscountInline(el) {
+        restoreDiscountPurchase(el);
+        el.style.position = "static";
+        el.style.left = el.style.top = el.style.height = el.style.right = "";
+        el.style.transform = "";
+        el.style.display = "inline-flex";
+        el.style.alignItems = "center";
+        el.style.alignSelf = "center";
+        el.style.margin = "0 0 0 auto";
+        el.style.width = "max-content";
+        el.style.maxWidth = "55%";
+        el.style.overflow = "hidden";
+        el.style.textOverflow = "ellipsis";
+        el.style.whiteSpace = "nowrap";
+        el.style.flex = "0 0 auto";
+    }
+    function placeDiscountInMidArea(el, row) {
+        const mid = areaCellOf(row, "mid");
+        if (!mid) return false;
+        styleDiscountInline(el);
+        el.style.gridColumn = "";
+        el.style.textAlign = "right";
+        if (el.parentElement !== mid) mid.appendChild(el);
+        el._shcMobileAnchor = null;
+        el._shcCategoryLine = null;
+        return true;
     }
     function placeMobileDiscount(el, row) {
+        restoreDiscountPurchase(el);
+        if (placeDiscountInMidArea(el, row)) return true;
         const hosts = mobileDiscountHosts(row);
         const capsule = hosts && hosts.capsule;
         if (!capsule) return false;
@@ -1783,6 +1844,7 @@
         el.style.overflow = "hidden";
         el.style.textOverflow = "ellipsis";
         el.style.zIndex = "10";
+        el._shcCapsuleStyle = { host: capsule, position: capsule.style.position, overflow: capsule.style.overflow };
         if (getComputedStyle(capsule).position === "static") capsule.style.position = "relative";
         if (getComputedStyle(capsule).overflow !== "visible") capsule.style.overflow = "visible";
         if (el.parentElement !== capsule) capsule.appendChild(el);
@@ -1819,18 +1881,7 @@
         const target = categoryLineOf(row);
         if (!target) return false;
         const line = target.line;
-        el.style.position = "static";
-        el.style.left = el.style.top = el.style.height = el.style.right = "";
-        el.style.transform = "";
-        el.style.display = "inline-flex";
-        el.style.alignItems = "center";
-        el.style.alignSelf = "center";
-        el.style.margin = "0 0 0 auto";
-        el.style.width = "max-content";
-        el.style.maxWidth = "55%";
-        el.style.overflow = "hidden";
-        el.style.whiteSpace = "nowrap";
-        el.style.flex = "0 0 auto";
+        styleDiscountInline(el);
         el.style.zIndex = "10";
         if (el.parentElement !== line) line.appendChild(el);
         el._shcCategoryLine = line;
@@ -1847,7 +1898,7 @@
                 if (!line || !line.isConnected || el.parentElement !== line) {
                     const row = el.closest("div.Panel");
                     if (row && !placeDiscountOnCategoryLine(el, row)) {
-                        if (el._shcMobileAnchor) syncMobileDiscountTop(el);
+                        if (el._shcMobileAnchor && el._shcMobileAnchor.capsule.isConnected) syncMobileDiscountTop(el);
                         else if (isMobileUI()) placeMobileDiscount(el, row);
                     }
                 }
@@ -1874,9 +1925,17 @@
         const panel = row && row.querySelector("div.Panel");
         const areas = panel && getComputedStyle(panel).gridTemplateAreas;
         if (!areas || areas === "none") return null;
+        // 桌面端（自己或他人愿望单）卡片网格含 dragger（排序拖柄）/ remove 等桌面专有区域。
+        // 若仅靠 purchase 出现次数 > 1 判定移动端，他人愿望单的桌面端会被误判并套上移动端
+        // 紧凑排版，导致样式错乱，故含 dragger/remove 一律视为桌面端。
+        if (/\b(?:dragger|remove)\b/.test(areas)) return false;
         const purchaseRow = (areas.match(/"[^"]+"/g) || []).find(area => /\bpurchase\b/.test(area));
         if (!purchaseRow) return null;
         return (purchaseRow.match(/\bpurchase\b/g) || []).length > 1;
+    }
+    // 视口已判定为移动端时不能被行级网格否掉，否则同页会混用 compact / side 两套样式
+    function isMobilePriceLayout(row) {
+        return steamMobileLayout(row) === true || isMobileUI();
     }
     const DISCOUNT_PURCHASE_STYLES = [ "position", "paddingTop" ];
     function restoreDiscountPurchase(el) {
@@ -1890,14 +1949,20 @@
             wrap.host.style.flexWrap = wrap.value;
             delete el._shcCartWrap;
         }
+        const capsule = el._shcCapsuleStyle;
+        if (capsule) {
+            capsule.host.style.position = capsule.position;
+            capsule.host.style.overflow = capsule.overflow;
+            delete el._shcCapsuleStyle;
+        }
     }
     function removeDiscountTime(el) {
         restoreDiscountPurchase(el);
         el.remove();
     }
-    function copyDiscountTextStyle(target, source) {
+    function copyDiscountTextStyle(target, source, properties) {
         const style = getComputedStyle(source);
-        for (const property of ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "color"]) {
+        for (const property of properties || [ "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "color" ]) {
             target.style[property] = style[property];
         }
         return style;
@@ -1962,24 +2027,14 @@
             paintDiscountTime(el);
             return;
         }
+        // 无"我的类别"行（他人愿望单）时走 mid 区右对齐，与有类别行页面的倒计时保持同一行位置。
+        if (!mobile && placeDiscountInMidArea(el, row)) {
+            el.dataset.end = String(current.discountEndsAt);
+            paintDiscountTime(el);
+            return;
+        }
         if (mobile) {
             if (placeMobileDiscount(el, row)) {
-                el.dataset.end = String(current.discountEndsAt);
-                paintDiscountTime(el);
-                return;
-            }
-            // 无类别行时落到 lower 格、价格/锁区行上方；lower 横/竖 flex 不定，flex-end 保证贴右/底对齐
-            const lower = priceHost && priceHost.parentElement;
-            if (lower && /\blower\b/.test(getComputedStyle(lower).gridArea)) {
-                el.style.margin = "0 0 2px";
-                el.style.textAlign = "right";
-                el.style.overflow = "hidden";
-                el.style.textOverflow = "ellipsis";
-                el.style.alignSelf = "flex-end";
-                priceHost.style.alignSelf = "flex-end";
-                if (el.parentElement !== lower || el.nextElementSibling !== priceHost) lower.insertBefore(el, priceHost);
-                // 借用类别行落点记录，tick 见落点仍在就不重排，避免被封面格兜底拽走
-                el._shcCategoryLine = lower;
                 el.dataset.end = String(current.discountEndsAt);
                 paintDiscountTime(el);
                 return;
@@ -2074,7 +2129,7 @@
         const line = (cls, label, entry) => {
             if (!entry || !entry.price) return "";
             const cut = Number(entry.cut) > 0 ? `-${entry.cut}%` : "";
-            return `<span class="${cls}">${label}${formatPrice(entry.price.amount, entry.price.currency)}${cut ? ` <span class="shc-discount">${cut}</span>` : ""}</span>`;
+            return `<span class="${cls}"><span class="shc-price-label">${label}</span>${formatPrice(entry.price.amount, entry.price.currency)}${cut ? ` <span class="shc-discount">${cut}</span>` : ""}</span>`;
         };
         div.innerHTML = line("shc-mobile-lowline", T.lowest, info.lowest) + line("shc-mobile-currentline", T.current, info.current);
         return div;
@@ -2093,21 +2148,24 @@
             visibleRows.delete(row);
             return;
         }
+        // 只看史低时非史低行是 display:none，测量为 0 会走错降级路径，恢复可见后再画
+        if (!row.getClientRects().length) return;
         const link = rowLink(row);
         const r = link && keyOfHref(link.href);
         if (!r) return;
         const info = prices[r.key];
         syncRowDiscountTime(row, info);
         const state = rowState(info);
-        if (!state || !(steamMobileLayout(row) ?? isMobileUI())) {
-            row.querySelectorAll(".shc-mobile-price-card").forEach(card => card.classList.remove("shc-mobile-price-card"));
+        const mobile = isMobilePriceLayout(row);
+        if (!state || !mobile) {
+            row.querySelectorAll(".shc-mobile-price-card, .shc-mobile-price-card-4").forEach(card => card.classList.remove("shc-mobile-price-card", "shc-mobile-price-card-4"));
         }
         const existing = row.querySelector(".shc-price");
         if (!state) {
             if (existing) existing.remove();
             return;
         }
-        const sig = state === "price" ? priceSignature(info) : state;
+        const sig = `${state === "price" ? priceSignature(info) : state}${mobile ? "|m" : "|d"}`;
         if (existing && existing.dataset.sig === sig && existing.dataset.layoutVersion === String(priceLayoutVersion)) return;
         if (existing) existing.remove();
         insertPriceLine(row, link, info, state);
@@ -2271,6 +2329,14 @@
         lastMobile = mobile;
         lastSteamMobile = steamMobile;
         updateBulkCartButton();
+        // Steam 自身也在 resize 后延迟重排卡片网格，且只改类名不增删节点，childList 观察器
+        // 不会触发。无论跨模式（桌面↔移动）还是同模式内换网格模板（500↔600px 六行↔四行），
+        // 都在 Steam 重排落定后再强制重画一遍，避免停留在过渡混合样式。
+        clearTimeout(viewportSettleTimer);
+        viewportSettleTimer = setTimeout(() => {
+            priceLayoutVersion++;
+            paintVisibleRows();
+        }, 700);
         if (previous === null || mobile === previous && !steamChanged) return;
         const countdownRows = new Set();
         document.querySelectorAll(".shc-discount-time").forEach(el => {
@@ -2281,6 +2347,7 @@
         countdownRows.forEach(row => paintRow(row));
         paintVisibleRows();
     }
+    let viewportSettleTimer = null;
     const dismissedCartDialogs = new WeakSet;
     function dismissSteamCartDialogs() {
         document.querySelectorAll("dialog").forEach(dialog => {
@@ -2373,6 +2440,7 @@
         .shc-summary .shc-seg > .label, .shc-summary .shc-seg > .dim { white-space: nowrap; }
         .shc-summary .main, .shc-summary .cur, .shc-summary .shc-money { white-space: normal; word-break: break-all; }
         .shc-bulk-title-row { min-width: 0; flex: 1 1 auto; align-self: stretch; }
+        /* 原生按钮的左内边距归零，让首行文字与续行左对齐。 */
         .shc-summary button.shc-low-toggle { display: inline-flex; vertical-align: baseline;
             margin: 0; padding-block: 0; padding-left: 0; line-height: 24px; white-space: nowrap; font-weight: 600; font-size: 12px; }
         .shc-low-toggle:not(.Focusable) { display: inline-flex; align-items: center; gap: 4px;
@@ -2412,11 +2480,13 @@
         #shc-wishlist-progress.loading .shc-mark svg { animation: shc-mark-spin 3.4s cubic-bezier(.42,0,.58,1) infinite; }
         @keyframes shc-mark-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
-
+        /* 移动端规则走媒体查询而非 .shc-mobile 标记：Steam 水合/重渲染会重写 <html> class，
+           依赖标记会被抹掉，表现为移动端样式时好时坏 */
         @media (max-width: 720px), (pointer: coarse) and (max-width: 900px) {
             .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
             .shc-low-drawer-open { padding: 4px; }
             #shc-bulk-cart { min-height: 30px; padding: 0 10px; font-size: 11px; }
+            /* 倒计时+地区按钮锁成一条不换行的右对齐 flex 行：按钮位置不随倒计时位数/汇总文字变化而跳动 */
             #shc-country-controls { display: flex; flex-wrap: nowrap; justify-content: flex-end;
                 align-items: center; flex: 0 0 auto; line-height: 22px; }
             #shc-country-controls > .shc-cc { flex: 0 0 auto; margin-left: 3px; height: 22px; }
@@ -2424,6 +2494,7 @@
             #shc-sale-countdown { flex: 0 1 auto; min-width: 0; overflow: hidden;
                 white-space: nowrap; text-overflow: ellipsis; font-size: 11px; word-spacing: -1.5px; }
             #shc-sale-countdown .shc-cd-date { display: none; }
+            /* 数字定宽（等宽数字+2ch 槽），分/时进位时倒计时总宽不变，按钮左缘保持不动 */
             #shc-sale-countdown .shc-cd-num { display: inline-block; min-width: 2ch;
                 text-align: right; font-variant-numeric: tabular-nums; }
             .shc-price.compact { margin-top: 2px; line-height: 1.35;
@@ -2431,16 +2502,18 @@
                 white-space: normal; overflow-wrap: anywhere; }
             .shc-release-discount-time { position: static; display: block;
                 width: auto; white-space: nowrap; }
-            .shc-price .shc-release-discount-time { margin: 0 0 2px; }
             .shc-mobile-price-card { grid-template-rows: 30px auto 28px 25px minmax(42px, auto) minmax(40px, auto); }
-            .shc-price.compact.mobile-info { flex: 0 1 auto; align-self: start; justify-self: end;
+            /* 501~910px 的 4 行网格：只放宽 lower(第3行)/purchase(第4行) 并取消固定卡高，避免 6 行模板错配导致内容溢出 */
+            .shc-mobile-price-card-4 { height: unset; grid-template-rows: 32px 26px minmax(38px, auto) minmax(42px, auto); }
+            /* 史低/当前同一行右端显示：不收缩、不换行，避免窄屏把「当前 ¥xx」挤到下一行 */
+            .shc-price.compact.mobile-info { flex: 0 0 auto; align-self: start; justify-self: end;
                 position: relative; top: -3.5px;
-                width: max-content; min-width: 0; max-width: 55%; margin: 0 0 0 8px; padding: 0;
-                font-size: 10px; line-height: 1.25; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+                width: max-content; min-width: 0; margin: 0 0 0 8px; padding: 0;
+                font-size: 10px; line-height: 1.25; text-align: right; white-space: nowrap; }
             .shc-price.compact.mobile-info .shc-mobile-lowline,
-            .shc-price.compact.mobile-info .shc-mobile-currentline { display: inline; }
-            .shc-price.compact.mobile-info .shc-mobile-currentline { margin-left: 3px; }
-            .shc-price.compact.mobile-info .shc-discount { display: none; }
+            .shc-price.compact.mobile-info .shc-mobile-currentline { display: inline; white-space: nowrap; }
+            /* 生成内容的空格会被折叠掉，用外边距保证史低与当前之间约两个空格的间隔 */
+            .shc-price.compact.mobile-info .shc-mobile-currentline { margin-left: 1em; }
         }
     `);
     initWishlist();
