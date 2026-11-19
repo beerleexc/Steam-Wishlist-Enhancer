@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name        Steam Wishlist Enhancer
 // @namespace   https://github.com/beerleexc
-// @description 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
+// @description Steam愿望单页面功能增强，可在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.2
+// @version     1.8.3
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -25,10 +25,9 @@
     if (document.documentElement.dataset.shcWishlistActive) return;
     document.documentElement.dataset.shcWishlistActive = "1";
 
-    // ── 全局配置 ── 语言、地区列表、货币识别、节流与请求参数
     const UI_LANGUAGE = (document.documentElement.lang || navigator.language || "zh-CN").toLowerCase();
     const IS_ZH = UI_LANGUAGE.startsWith("zh");
-    const T = ({
+    const T = {
         zh: {
             switchRegion: "切换查询地区", networkError: "网络错误", requestTimeout: "请求超时",
             winter: "❄️ 冬季特卖", spring: "🌱 春季特卖", summer: "☀️ 夏季特卖", autumn: "🍂 秋季特卖",
@@ -38,7 +37,7 @@
             showLow: "展开史低游戏", hideLow: "收起史低游戏",
             includes: value => `含 ${value} 报价`, noLow: n => `⚠ ${n} 项无数据`,
             missing: n => `${n} 项暂无数据`, loadingWishlist: "正在加载愿望单…",
-            checked: (m, n) => `已加载 ${m}/${n}`,
+            checked: (m, n) => `已加载 ${m}/${n}`, loaded: "加载完成",
             backToTop: "返回顶部", backToTopTitle: "点击返回页面顶部",
             bulkAdd: "全部加购", bulkPreparing: "正在准备…", bulkAdding: n => `正在加购 ${n} 项…`,
             bulkAdded: n => `已加购 ${n} 项`, bulkNone: "无可加购项目", bulkFailed: "加购失败，点击重试",
@@ -59,7 +58,7 @@
             showLow: "Show historical-low games", hideLow: "Hide historical-low drawer",
             includes: value => `Includes ${value} prices`, noLow: n => `⚠ No data for ${n} ${n === 1 ? "item" : "items"}`,
             missing: n => `${n} items unavailable`, loadingWishlist: "Loading wishlist…",
-            checked: (m, n) => `Checked ${m} / ${n}`,
+            checked: (m, n) => `Checked ${m} / ${n}`, loaded: "Loading complete",
             backToTop: "Back to top", backToTopTitle: "Back to top",
             bulkAdd: "Add all to cart", bulkPreparing: "Preparing…", bulkAdding: n => `Adding ${n} items…`,
             bulkAdded: n => `Added ${n} items`, bulkNone: "Nothing to add", bulkFailed: "Failed — retry",
@@ -71,7 +70,7 @@
             native: value => ` (${value})`,
             saleTitle: (sale, start, end) => `${sale.label} | PT: ${formatSaleDate(start)} — ${formatSaleDate(end)} | Local: ${new Date(start).toLocaleString("en-US")} — ${new Date(end).toLocaleString("en-US")}`
         }
-    })[IS_ZH ? "zh" : "en"];
+    }[IS_ZH ? "zh" : "en"];
     const COUNTRIES = {
         cn: { name: IS_ZH ? "🇨🇳 中国" : "🇨🇳 China", currency: "CNY", lowSource: "augmented" },
         us: { name: IS_ZH ? "🇺🇸 美国" : "🇺🇸 United States", currency: "USD", lowSource: "augmented" },
@@ -113,7 +112,6 @@
             GM_setValue(key, { v: STORE_VERSION, t: Date.now(), value: value });
         }
     };
-    // ── 网络请求封装 ── 统一 GM_xmlhttpRequest，附带错误映射与 JSON 便捷方法
     function request(opts) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -135,7 +133,6 @@
         data: data,
         headers: { "Content-Type": "application/json", ...headers }
     });
-    // ── 汇率模块 ── 从 open.er-api.com 拉取 USD 基准汇率，缓存 24h，用于 CNY 折算
     const FX_URL = "https://open.er-api.com/v6/latest/USD";
     const FX_KEY = "steamHistoryFxRates";
     const FX_TTL = 24 * 60 * 60 * 1e3;
@@ -194,7 +191,6 @@
         const coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
         return w > 0 && (w <= 720 || coarse && w <= 900);
     }
-    // ── 价格数据源 ── 三路并行：augmentedsteam 多地区当前价 + Steam 原生价 + 小黑盒史低
     function fetchPrices(chunk, country, subs = []) {
         return postJSON(location.protocol + "//api.augmentedsteam.com/prices/v2", {
             country: country.toUpperCase(),
@@ -256,7 +252,15 @@
                     if (!otherPrices) return;
                     pending.forEach(key => {
                         const info = otherPrices[key];
-                        if (info && info.price && info.price.amount > 0) out[key] = { regionLocked: true };
+                        if (!info || !info.price || !(info.price.amount > 0)) return;
+                        const locked = out[key] || (out[key] = {});
+                        // 候选键先被记为 noPrice，这里必须改判为锁区，否则 merge 会走 noPrice 分支丢掉锁区态
+                        locked.regionLocked = true;
+                        delete locked.noPrice;
+                        if (locked.discountEndsAt == null && Number(info.cut) > 0 && Number.isFinite(info.discountEndsAt)) {
+                            locked.cut = info.cut;
+                            locked.discountEndsAt = info.discountEndsAt;
+                        }
                     });
                 });
             }
@@ -360,6 +364,8 @@
             }
             if (steam[key].regionLocked) {
                 entry.regionLocked = true;
+                entry.cut = steam[key].cut;
+                entry.discountEndsAt = steam[key].discountEndsAt;
                 delete entry.current;
                 delete entry.lowest;
                 return;
@@ -420,47 +426,7 @@
     const failCount = new Map;
     const observedRows = new WeakSet;
     const visibleRows = new Set;
-    const mobileFits = new Map;
     let priceLayoutVersion = 0;
-    let fitObserver = null;
-    let fitQueued = false;
-    function runMobileFits() {
-        if (fitQueued) return;
-        fitQueued = true;
-        requestAnimationFrame(() => {
-            fitQueued = false;
-            mobileFits.forEach((fit, row) => {
-                if (!row.isConnected || !fit.el.isConnected) {
-                    mobileFits.delete(row);
-                    return;
-                }
-                if (visibleRows.has(row)) fit.apply();
-            });
-        });
-    }
-    function trackMobileFit(row, el, apply) {
-        mobileFits.set(row, { el: el, apply: apply });
-        if (typeof ResizeObserver === "function") {
-            if (!fitObserver) fitObserver = new ResizeObserver(entries => {
-                let needsFit = false;
-                entries.forEach(entry => {
-                    const rowEl = entry.target;
-                    const fit = mobileFits.get(rowEl);
-                    if (!rowEl.isConnected || !fit || !fit.el.isConnected) {
-                        mobileFits.delete(rowEl);
-                        fitObserver.unobserve(rowEl);
-                        return;
-                    }
-                    const width = entry.contentRect.width;
-                    const widthChanged = fit.width === undefined || Math.abs(width - fit.width) > .5;
-                    fit.width = width;
-                    if (widthChanged && visibleRows.has(rowEl)) needsFit = true;
-                });
-                if (needsFit) runMobileFits();
-            });
-            fitObserver.observe(row);
-        }
-    }
     let priceBuckets = store.read(PRICE_KEY, null) || {};
     Object.keys(priceBuckets).forEach(code => {
         if (!COUNTRY_CODES.has(code)) delete priceBuckets[code];
@@ -789,7 +755,7 @@
         };
         const keys = [ ...wishlistIds.keys() ];
         if (filtered) keys.sort(compareWishlistKeys);
-        keys.slice(0, filtered ? keys.length : AUTO_QUEUE_LIMIT).forEach(enqueue);
+        (filtered ? keys : keys.slice(0, AUTO_QUEUE_LIMIT)).forEach(enqueue);
         if (!filtered) visibleRows.forEach(row => {
             const r = rowRef(row);
             if (r) enqueue(r.key);
@@ -818,7 +784,6 @@
         }
         return chunk;
     }
-    // 抓价主循环
     async function drainPrices() {
         if (draining) return;
         draining = true;
@@ -877,7 +842,6 @@
         }
     }
     let sumCache = null;
-    // ── 汇总计算 ── 遍历 wishlistIds 聚合史低合计、当前合计、币种分布、锁区/缺失计数
     function summarize() {
         const sig = `${dataVersion}|${wishlistIds.size}|${fetchedKeys.size}|${fxLive ? 1 : 0}${fxTried ? 1 : 0}`;
         if (sumCache && sumCache.sig === sig) return sumCache.value;
@@ -1116,32 +1080,33 @@
         if (node && node.nodeValue !== value) node.nodeValue = value;
     }
     const saleIsLive = (sale, now) => sale.startMs <= now && sale.endMs > now;
-    // ── 特卖倒计时 ── 从 Steamworks 官方页面抓在售/即将到来的大促，每秒/每 20s 刷新显示
     function buildCountdown(sale, now) {
         countdownEl.textContent = "";
         const add = (cls, text) => {
             const span = document.createElement("span");
             span.className = cls;
             span.textContent = text;
+            if (countdownEl.childNodes.length) countdownEl.appendChild(document.createTextNode(" "));
             countdownEl.appendChild(span);
-            return span.firstChild;
+            return span;
         };
-        const num = () => {
+        const num = unit => {
+            const group = add("shc-cd-part", "");
             const b = document.createElement("b");
             b.className = "shc-cd-num";
-            countdownEl.appendChild(b);
+            const suffix = document.createElement("span");
+            suffix.className = "shc-cd-unit";
+            suffix.textContent = unit;
+            group.append(b, suffix);
             return b.appendChild(document.createTextNode(""));
         };
         cdSignature = `${sale.label}|${sale.startMs}|${sale.endMs}`;
         add("shc-cd-name", sale.label);
         add("shc-cd-date", `${formatSaleDate(sale.startMs)} — ${formatSaleDate(sale.endMs)}`);
-        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? T.endsIn : T.startsIn) };
-        cdNodes.days = num();
-        add("shc-cd-unit", T.days);
-        cdNodes.hours = num();
-        add("shc-cd-unit", T.hours);
-        cdNodes.mins = num();
-        add("shc-cd-unit", T.minutes);
+        cdNodes = { state: add("shc-cd-state", saleIsLive(sale, now) ? T.endsIn : T.startsIn).firstChild };
+        cdNodes.days = num(T.days);
+        cdNodes.hours = num(T.hours);
+        cdNodes.mins = num(T.minutes);
     }
     function paintCountdown() {
         if (!countdownEl) return;
@@ -1155,9 +1120,10 @@
         const live = saleIsLive(sale, now);
         const left = Math.floor(((live ? sale.endMs : sale.startMs) - now) / 6e4);
         writeText(cdNodes.state, live ? T.endsIn : T.startsIn);
-        writeText(cdNodes.days, String(Math.floor(left / 1440)));
-        writeText(cdNodes.hours, String(Math.floor(left % 1440 / 60)));
-        writeText(cdNodes.mins, String(left % 60));
+        // 补零填满 2ch 定宽槽：单位数时右对齐会在数字左侧留出一格空白，看起来像多余的大间距
+        writeText(cdNodes.days, String(Math.floor(left / 1440)).padStart(2, "0"));
+        writeText(cdNodes.hours, String(Math.floor(left % 1440 / 60)).padStart(2, "0"));
+        writeText(cdNodes.mins, String(left % 60).padStart(2, "0"));
         const title = T.saleTitle(sale, sale.startMs, sale.endMs);
         if (countdownEl.title !== title) countdownEl.title = title;
         if (countdownEl.style.display === "none") countdownEl.style.display = "";
@@ -1182,17 +1148,23 @@
         if (!saleTimer) saleTimer = setInterval(tickCountdown, 2e4);
         if (!discountTimer) discountTimer = setInterval(updateDiscountTimes, 1e3);
     }
-    // ── 史低抽屉 ── 复用 Steam 原生游戏行，展开时隐藏非史低项目并补齐全量价格
-    function syncLowOnlyRow(row, ref, info) {
-        const r = ref || rowRef(row);
-        const data = info === undefined ? r && prices[r.key] : info;
-        const atLow = !!(data && isAtHistoricalLow(data.lowest, data.current));
-        row.classList.toggle("shc-at-low-row", atLow);
-        row.classList.toggle("shc-low-hidden", lowOnly && !atLow);
-    }
+    let lowFilterStyle = null;
     function syncLowOnly() {
-        document.querySelectorAll(ROW_SELECTOR).forEach(row => syncLowOnlyRow(row));
-        // 挂在 body 上而不是列表容器上：Steam 重建列表容器时规则依然生效，不会有一帧露出原生列表。
+        if (lowOnly) {
+            if (!lowFilterStyle) {
+                lowFilterStyle = document.createElement("style");
+                document.head.appendChild(lowFilterStyle);
+            }
+            const matches = [];
+            for (const { key, id } of wishlistIds.values()) {
+                const info = prices[key];
+                if (!info || !isAtHistoricalLow(info.lowest, info.current)) continue;
+                matches.push(`[data-appid="${id}"]`, `:has(a[href*="/app/${id}/"], a[href$="/app/${id}"], a[href*="/app/${id}?"], a[href*="/app/${id}#"])`);
+            }
+            // 原生虚拟列表会在 MutationObserver 前测量新行，筛选不能依赖稍后才补上的类。
+            const rule = matches.length ? `body.shc-low-only :is(${ROW_SELECTOR}):not(${matches.join(",")}) { display: none !important; }` : "";
+            if (lowFilterStyle.textContent !== rule) lowFilterStyle.textContent = rule;
+        }
         document.body.classList.toggle("shc-low-only", lowOnly);
         const host = rowsHost();
         if (!host) return null;
@@ -1207,10 +1179,7 @@
         records.forEach(record => record.addedNodes.forEach(node => {
             if (node.nodeType !== 1) return;
             const rows = node.matches(ROW_SELECTOR) ? [ node ] : [ ...node.querySelectorAll(ROW_SELECTOR) ];
-            rows.forEach(row => {
-                syncLowOnlyRow(row);
-                paintRow(row);
-            });
+            rows.forEach(paintRow);
         }));
         const host = rowsHost();
         if (host && !host.classList.contains("shc-low-drawer-open")) syncLowOnly();
@@ -1275,9 +1244,8 @@
             setTimeout(() => host.classList.remove("shc-low-drawer-enter"), 260);
         }
         queuePrices();
-        scrollWishlistToTop();
+        scrollWishlistToTop(false);
     }
-    // ── 汇总栏渲染 ── 把 summarize() 的结果写入 #shc-wishlist-summary，debounce 200ms 触发
     function renderSummary() {
         const box = getSummaryBox();
         if (!box) return;
@@ -1295,53 +1263,35 @@
             return;
         }
         const noLowAtAll = s.counted > 0 && s.noLow === s.counted;
-        const nativeText = map => {
+        // 主金额用地区原生货币，括号里折算人民币；只有单一非人民币币种时才需要括号。
+        const totalText = (cny, map) => {
             const keys = Object.keys(map).filter(c => c !== "CNY" && map[c] > 0);
-            return keys.length === 1 ? T.native(formatPrice(map[keys[0]], keys[0])) : "";
+            return keys.length === 1 ? formatPrice(map[keys[0]], keys[0]) + T.native(formatCNY(cny)) : formatCNY(cny);
         };
         const seg = html => `<span class="shc-seg">${html}</span>`;
-        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ seg(`<span class="label">${T.lowTotal}</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`) , seg(`<span class="dim">${T.currentTotal}</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>`) ];
-        if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(formatCNY(s.save))}</span>`);
+        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ seg(`<span class="label">${T.lowTotal}</span> <span class="main">${noLowAtAll ? "—" : totalText(s.lowSum, s.lowNative)}</span>`) , seg(`<span class="dim">${T.currentTotal}</span> <span class="cur">${totalText(s.curSum, s.curNative)}</span>`) ];
+        if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(`<span class="shc-money">${formatCNY(s.save)}</span>`)}</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
         if (s.noLow) parts.push(`<span class="warn">${T.noLow(s.noLow)}</span>`);
         if (s.missing) parts.push(`<span class="warn">${T.missing(s.missing)}</span>`);
         const lowButton = s.atLow > 0 || lowOnly ? nativeMenuButtonHTML(T.atLow(s.atLow), lowOnly, drawerHost && drawerHost.id || "shc-low-drawer", lowOnly ? T.hideLow : T.showLow) : "";
-        writeIfChanged(body, lowButton + parts.join(""));
+        writeIfChanged(body, [ lowButton, ...parts ].filter(Boolean).join(" "));
         revealBar(box);
         updateCollectionProgress();
         updateBulkCartButton(s);
     }
-    // ── 批量加购 ── 当前视图全量补齐购买映射，拥有状态过滤后一次 POST
     function bulkTitleHost() {
         const title = [ ...document.querySelectorAll("h1, h2") ].find(el => /愿望单|wishlist/i.test(el.textContent));
         if (!title) return null;
         const row = title.parentElement;
-        const container = row && row.parentElement;
-        const stacked = container && getComputedStyle(container).flexDirection === "column";
-        return (stacked ? [ row, container ] : [ container, row ])
+        return [ row, row && row.parentElement ]
             .find(el => el && getComputedStyle(el).display === "flex") || null;
     }
     function ensureBulkCartButton() {
         const host = bulkTitleHost();
         if (!host) return null;
-        const stackedRow = getComputedStyle(host).flexDirection === "row" && host.parentElement
-            && getComputedStyle(host.parentElement).flexDirection === "column";
-        host.classList.toggle("shc-bulk-title-row", !!stackedRow);
-        // 让标题行铺满可用宽度，"全部加购" 才能靠 margin-left:auto 回到最右侧；
-        // 父级是列方向时用 align-self:stretch（横向拉伸），行方向时用 flex-grow。
-        const hostParent = host.parentElement;
-        const parentStyle = hostParent && getComputedStyle(hostParent);
-        if (host.style && parentStyle && parentStyle.display.includes("flex")) {
-            // 两个方向互斥的属性每次都重置，避免同一节点换父级方向后残留另一种拉伸方式
-            if (parentStyle.flexDirection.startsWith("column")) {
-                host.style.alignSelf = "stretch";
-                host.style.flex = "";
-            } else {
-                host.style.flex = "1 1 auto";
-                host.style.alignSelf = "";
-            }
-        }
+        host.classList.add("shc-bulk-title-row");
         if (!bulkCartButton) {
             bulkCartButton = document.createElement("button");
             bulkCartButton.id = "shc-bulk-cart";
@@ -1350,11 +1300,8 @@
             bulkCartButton.setAttribute("aria-live", "polite");
             bulkCartButton.addEventListener("click", addBulkToCart);
         }
-        // 断点切换（缩放）时标题行会换到另一个父级，旧的拉伸样式必须清掉，
-        // 否则两个节点同时被拉伸，按钮就会忽左忽右。
-        if (bulkCartButton._shcHost && bulkCartButton._shcHost !== host && bulkCartButton._shcHost.style) {
-            bulkCartButton._shcHost.style.flex = "";
-            bulkCartButton._shcHost.style.alignSelf = "";
+        if (bulkCartButton._shcHost && bulkCartButton._shcHost !== host) {
+            bulkCartButton._shcHost.classList.remove("shc-bulk-title-row");
         }
         bulkCartButton._shcHost = host;
         if (bulkCartButton.parentElement !== host) host.appendChild(bulkCartButton);
@@ -1539,15 +1486,31 @@
             updateBulkCartButton();
         }
     }
+    let progressCompleted = false;
+    let progressCompletionTimer = null;
     function updateCollectionProgress() {
         let checked = 0;
         for (const key of wishlistIds.keys()) if (checkedIds.has(key)) checked++;
         const busy = !!(collecting || draining || pendingIds.size > 0);
-        if (busy && wishlistIds.size) return setProgress(T.checked(checked, wishlistIds.size), true);
-        if (!checked) return hideProgress();
-        setProgress(T.backToTop, false);
+        if (busy || !checked || checked < Math.max(wishlistIds.size, expectedCount)) {
+            clearTimeout(progressCompletionTimer);
+            progressCompletionTimer = null;
+            progressCompleted = false;
+            if (busy && wishlistIds.size) return setProgress(T.checked(checked, wishlistIds.size), true);
+            if (!checked) return hideProgress();
+            return setProgress(T.backToTop, false);
+        }
+        if (!progressCompleted) {
+            progressCompleted = true;
+            setProgress(T.loaded, false);
+            progressCompletionTimer = setTimeout(() => {
+                progressCompletionTimer = null;
+                setProgress(T.backToTop, false, true);
+            }, 1600);
+            return;
+        }
+        setProgress(progressCompletionTimer ? T.loaded : T.backToTop, false);
     }
-    // ── 采集总入口 ── 启动服务器 JSON 请求 + DOM 同步，按需滚动兜底，完成后触发 drainPrices
     async function startCollection() {
         const run = generation;
         collecting++;
@@ -1669,9 +1632,6 @@
         });
         return best || link;
     }
-    function currentPriceLeaf(item) {
-        return findPriceLeaf(item, true);
-    }
     let measureCtx = null;
     function alignToPriceLine(el, leaf, box) {
         measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
@@ -1719,71 +1679,26 @@
         return null;
     }
     function insertPriceLine(row, link, info, state) {
-        const el = createPriceElement(info, state);
+        const mobile = steamMobileLayout(row) ?? isMobileUI();
+        const el = createPriceElement(info, state, mobile);
         el.dataset.sig = state === "price" ? priceSignature(info) : state;
         el.dataset.layoutVersion = String(priceLayoutVersion);
         const anchor = titleLinkOf(row, link);
         const host = rowHost(row, anchor);
         const leaf = findPriceLeaf(row, false);
         const item = leaf && priceRowItem(row, leaf);
-        if (isMobileUI()) {
-            const card = cardGridOf(row, leaf || item || anchor);
-            if (card) {
-                const findNativePurchase = () => [ ...card.children ].find(n => /purchase/.test(getComputedStyle(n).gridArea));
-                let native = findNativePurchase();
-                const ownRow = () => {
-                    el.classList.remove("purchase-inline", "tight");
-                    Object.assign(el.style, {
-                        gridArea: "auto", gridColumn: "1 / -1", gridRow: "auto",
-                        justifySelf: "stretch", alignSelf: "start", width: "auto",
-                        maxWidth: "100%", minWidth: "0", margin: "2px 0 0",
-                        paddingLeft: "0", lineHeight: "", fontSize: ""
-                    });
-                    if (el.parentElement !== card || el.nextElementSibling) card.appendChild(el);
-                };
-                const fitInline = () => {
-                    el.style.fontSize = "11px";
-                    el.classList.remove("tight");
-                    if (el.scrollWidth <= el.clientWidth + 1) return;
-                    if (el.querySelector(".shc-release-discount-time")) {
-                        ownRow();
-                        return;
-                    }
-                    el.classList.add("tight");
-                };
-                const nativeLeft = () => {
-                    let left = Infinity;
-                    native.querySelectorAll("*").forEach(n => {
-                        if (n.children.length || !isPriceText(n.textContent)) return;
-                        const r = n.getBoundingClientRect();
-                        if (r.width > 0 && r.left < left) left = r.left;
-                    });
-                    return left === Infinity ? native.getBoundingClientRect().left : left;
-                };
-                const applyInline = () => {
-                    if (!card.isConnected) return;
-                    // Steam 会在断点切换时重建购买区，不能继续以已分离节点作为插入锚点。
-                    if (!native || native.parentElement !== card) native = findNativePurchase();
-                    if (!native) return ownRow();
-                    el.classList.add("purchase-inline");
-                    Object.assign(el.style, {
-                        gridColumn: "", gridRow: "", gridArea: "purchase",
-                        justifySelf: "start", alignSelf: "center", width: "auto",
-                        minWidth: "0", maxWidth: "none", margin: "0",
-                        paddingLeft: "0", lineHeight: "1.3"
-                    });
-                    if (el.nextElementSibling !== native) card.insertBefore(el, native);
-                    const locked = el.classList.contains("locked");
-                    const avail = Math.floor(nativeLeft() - el.getBoundingClientRect().left - 4);
-                    if (!locked && avail < 70) return ownRow();
-                    el.style.maxWidth = locked ? "none" : `${avail}px`;
-                    fitInline();
-                };
-                applyInline();
-                trackMobileFit(row, el, applyInline);
-                return;
+        if (mobile) {
+            el.classList.add("mobile-info");
+            const card = cardGridOf(row, leaf || item || anchor, true);
+            const lower = card && [ ...card.children ].find(n => /\blower\b/.test(getComputedStyle(n).gridArea));
+            if (lower) {
+                card.classList.add("shc-mobile-price-card");
+                lower.appendChild(el);
             }
-            host.appendChild(el);
+            else {
+                el.style.gridColumn = "1 / -1";
+                (card || host).appendChild(el);
+            }
             return;
         }
         if (item && item.parentElement && host !== row) {
@@ -1794,7 +1709,7 @@
                 el.remove();
                 el.classList.remove("side");
             } else {
-                alignToPriceLine(el, currentPriceLeaf(item) || leaf, item.parentElement);
+                alignToPriceLine(el, findPriceLeaf(item, true) || leaf, item.parentElement);
                 return;
             }
         }
@@ -1884,9 +1799,7 @@
         const top = `${Math.max(0, Math.round(titleCenter - capRect.top))}px`;
         if (el.style.top !== top) el.style.top = top;
     }
-    // ── 倒计时统一挂到"我的类别"那一行 ──
-    // 该行本身是整卡宽度的 flex 容器，倒计时用 margin-left:auto 贴右，
-    // 不依赖任何像素测量，桌面/移动端同一套逻辑，窗口拉伸自动自适应。
+    // 倒计时挂到"我的类别"行：整卡宽 flex 容器 + margin-left:auto 贴右，不做像素测量，拉伸自适应。
     function categoryLineOf(row) {
         const label = directLabelOf(row, CATEGORY_LABEL_RE);
         let line = label && label.parentElement;
@@ -1925,8 +1838,10 @@
         return true;
     }
     function updateDiscountTimes() {
+        const els = document.querySelectorAll(".shc-discount-time[data-end]");
+        if (!els.length) return;
         const now = Date.now();
-        document.querySelectorAll(".shc-discount-time[data-end]").forEach(el => {
+        els.forEach(el => {
             if (el.classList.contains("shc-release-discount-time")) {
                 const line = el._shcCategoryLine;
                 if (!line || !line.isConnected || el.parentElement !== line) {
@@ -1966,9 +1881,15 @@
     const DISCOUNT_PURCHASE_STYLES = [ "position", "paddingTop" ];
     function restoreDiscountPurchase(el) {
         const saved = el._shcDiscountPurchase;
-        if (!saved) return;
-        DISCOUNT_PURCHASE_STYLES.forEach(key => { saved.host.style[key] = saved.styles[key]; });
-        delete el._shcDiscountPurchase;
+        if (saved) {
+            DISCOUNT_PURCHASE_STYLES.forEach(key => { saved.host.style[key] = saved.styles[key]; });
+            delete el._shcDiscountPurchase;
+        }
+        const wrap = el._shcCartWrap;
+        if (wrap) {
+            wrap.host.style.flexWrap = wrap.value;
+            delete el._shcCartWrap;
+        }
     }
     function removeDiscountTime(el) {
         restoreDiscountPurchase(el);
@@ -1983,7 +1904,7 @@
     }
     function syncRowDiscountTime(row, info) {
         let el = row.querySelector(".shc-release-discount-time");
-        const current = info && info.current;
+        const current = info && (info.current || (info.regionLocked ? info : null));
         const valid = current && Number(current.cut) > 0 && Number.isFinite(current.discountEndsAt) && current.discountEndsAt > Date.now();
         if (!valid) {
             if (el) removeDiscountTime(el);
@@ -2029,8 +1950,9 @@
         }
         if (textGap <= 0) textGap = 6;
         parts.label.style.marginRight = `${textGap}px`;
-        el.style.left = el.style.top = el.style.height = "";
-        el.style.width = el.style.margin = el.style.flex = el.style.gridColumn = el.style.transform = "";
+        el.style.left = el.style.top = el.style.height = el.style.right = "";
+        el.style.width = el.style.maxWidth = el.style.margin = el.style.flex = el.style.gridColumn = el.style.transform = "";
+        el.style.overflow = el.style.textOverflow = el.style.whiteSpace = el.style.alignItems = el.style.zIndex = "";
         el.style.position = mobile ? "static" : "";
         el.style.display = "";
         el._shcMobileAnchor = null;
@@ -2042,6 +1964,22 @@
         }
         if (mobile) {
             if (placeMobileDiscount(el, row)) {
+                el.dataset.end = String(current.discountEndsAt);
+                paintDiscountTime(el);
+                return;
+            }
+            // 无类别行时落到 lower 格、价格/锁区行上方；lower 横/竖 flex 不定，flex-end 保证贴右/底对齐
+            const lower = priceHost && priceHost.parentElement;
+            if (lower && /\blower\b/.test(getComputedStyle(lower).gridArea)) {
+                el.style.margin = "0 0 2px";
+                el.style.textAlign = "right";
+                el.style.overflow = "hidden";
+                el.style.textOverflow = "ellipsis";
+                el.style.alignSelf = "flex-end";
+                priceHost.style.alignSelf = "flex-end";
+                if (el.parentElement !== lower || el.nextElementSibling !== priceHost) lower.insertBefore(el, priceHost);
+                // 借用类别行落点记录，tick 见落点仍在就不重排，避免被封面格兜底拽走
+                el._shcCategoryLine = lower;
                 el.dataset.end = String(current.discountEndsAt);
                 paintDiscountTime(el);
                 return;
@@ -2090,7 +2028,10 @@
                 const hostStyle = getComputedStyle(cartHost);
                 if (hostStyle.display.includes("flex")) {
                     el.style.flex = `0 0 ${width}`;
-                    if (hostStyle.flexWrap === "nowrap") cartHost.style.flexWrap = "wrap";
+                    if (hostStyle.flexWrap === "nowrap") {
+                        el._shcCartWrap = { host: cartHost, value: cartHost.style.flexWrap };
+                        cartHost.style.flexWrap = "wrap";
+                    }
                 }
                 if (hostStyle.display.includes("grid")) el.style.gridColumn = "1 / -1";
             }
@@ -2120,9 +2061,9 @@
         el.dataset.end = String(current.discountEndsAt);
         paintDiscountTime(el);
     }
-    function createPriceElement(info, state) {
+    function createPriceElement(info, state, mobile) {
         const div = document.createElement("div");
-        const compact = isMobileUI() ? " compact" : "";
+        const compact = mobile ? " compact" : "";
         if (state === "locked") {
             div.className = `shc-price locked${compact}`;
             div.textContent = T.regionLocked;
@@ -2133,7 +2074,7 @@
         const line = (cls, label, entry) => {
             if (!entry || !entry.price) return "";
             const cut = Number(entry.cut) > 0 ? `-${entry.cut}%` : "";
-            return `<span class="${cls}">${label}${formatPrice(entry.price.amount, entry.price.currency)}` + `${cut ? ` <span class="shc-discount">${cut}</span>` : ""}</span>`;
+            return `<span class="${cls}">${label}${formatPrice(entry.price.amount, entry.price.currency)}${cut ? ` <span class="shc-discount">${cut}</span>` : ""}</span>`;
         };
         div.innerHTML = line("shc-mobile-lowline", T.lowest, info.lowest) + line("shc-mobile-currentline", T.current, info.current);
         return div;
@@ -2156,9 +2097,11 @@
         const r = link && keyOfHref(link.href);
         if (!r) return;
         const info = prices[r.key];
-        syncLowOnlyRow(row, r, info);
         syncRowDiscountTime(row, info);
         const state = rowState(info);
+        if (!state || !(steamMobileLayout(row) ?? isMobileUI())) {
+            row.querySelectorAll(".shc-mobile-price-card").forEach(card => card.classList.remove("shc-mobile-price-card"));
+        }
         const existing = row.querySelector(".shc-price");
         if (!state) {
             if (existing) existing.remove();
@@ -2166,10 +2109,7 @@
         }
         const sig = state === "price" ? priceSignature(info) : state;
         if (existing && existing.dataset.sig === sig && existing.dataset.layoutVersion === String(priceLayoutVersion)) return;
-        if (existing) {
-            mobileFits.delete(row);
-            existing.remove();
-        }
+        if (existing) existing.remove();
         insertPriceLine(row, link, info, state);
         syncRowDiscountTime(row, info);
     }
@@ -2182,7 +2122,6 @@
             visibleRows.forEach(row => paintRow(row));
         });
     }
-    // ── 滚动联动 ── 视口内愿望单行加入 visibleRows，离开则移出；大愿望单下只抓可见行价格
     const rowObserver = new IntersectionObserver(entries => {
         entries.forEach(e => {
             if (e.isIntersecting) {
@@ -2199,18 +2138,34 @@
             rowObserver.observe(row);
         });
     }
-    function setProgress(text, loading = true) {
+    let progressTextTimer = null;
+    function setProgress(text, loading = true, transition = false) {
         const div = getProgressDiv();
         const label = div.querySelector(".shc-wishlist-progress-text");
-        if (label && label.textContent !== text) label.textContent = text;
+        if (label && label.dataset.text !== text) {
+            label.dataset.text = text;
+            clearTimeout(progressTextTimer);
+            progressTextTimer = null;
+            if (transition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                label.classList.add("changing");
+                progressTextTimer = setTimeout(() => {
+                    label.textContent = text;
+                    label.classList.remove("changing");
+                    progressTextTimer = null;
+                }, 150);
+            } else {
+                label.textContent = text;
+                label.classList.remove("changing");
+            }
+        }
         div.classList.toggle("loading", loading);
         div.classList.add("show");
     }
     function hideProgress() {
         getProgressDiv(false)?.classList.remove("show");
     }
-    function scrollWishlistToTop() {
-        const options = { top: 0, behavior: "smooth" };
+    function scrollWishlistToTop(smooth = true) {
+        const options = { top: 0, behavior: smooth ? "smooth" : "auto" };
         const host = scrollHostOf(document.querySelector(ROW_SELECTOR));
         if (host) {
             if (typeof host.scrollTo === "function") host.scrollTo(options);
@@ -2218,8 +2173,7 @@
         }
         window.scrollTo(options);
     }
-    // 加载中的慵懒猫：侧身坐姿、抬爪舔爪，单色剪影（跟随 currentColor）
-    const CAT_SPINNER = '<svg viewBox="120 120 784 784" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" d="M 152.8,292.5 L 152.8,296.4 L 163.6,309.1 L 205.8,349.3 L 202.8,360.1 L 201.8,381.7 L 204.8,400.3 L 209.7,415.0 L 220.5,432.6 L 242.0,452.2 L 247.9,468.9 L 254.8,476.7 L 261.6,481.6 L 279.2,489.5 L 288.1,491.4 L 303.8,491.4 L 320.4,484.6 L 345.9,463.0 L 346.9,467.9 L 341.0,511.0 L 339.0,513.0 L 279.2,494.4 L 218.5,467.9 L 209.7,465.9 L 195.0,465.9 L 172.4,472.8 L 153.8,474.8 L 143.0,479.7 L 133.2,490.4 L 130.3,499.3 L 130.3,510.0 L 134.2,519.8 L 142.1,528.7 L 156.8,534.5 L 176.4,534.5 L 188.1,532.6 L 216.5,522.8 L 266.5,557.1 L 317.5,588.4 L 345.9,603.1 L 372.4,612.9 L 381.2,614.9 L 397.8,614.9 L 410.6,610.0 L 420.4,602.2 L 431.1,619.8 L 437.0,648.2 L 441.0,684.5 L 441.9,732.5 L 440.0,748.2 L 438.0,750.1 L 419.4,751.1 L 410.6,756.0 L 402.7,766.8 L 401.8,781.5 L 404.7,788.4 L 411.6,794.2 L 419.4,796.2 L 479.2,795.2 L 487.0,791.3 L 492.9,785.4 L 497.8,775.6 L 503.7,754.1 L 525.2,641.4 L 534.1,607.1 L 536.0,605.1 L 537.0,612.0 L 539.9,618.8 L 544.8,602.2 L 555.6,579.6 L 569.3,561.0 L 580.1,550.2 L 599.7,535.5 L 622.2,523.8 L 637.9,517.9 L 640.9,518.9 L 615.4,530.6 L 598.7,541.4 L 575.2,563.0 L 560.5,583.5 L 553.6,597.3 L 546.8,616.9 L 543.9,631.6 L 543.9,656.1 L 545.8,667.8 L 553.6,690.4 L 567.4,711.9 L 583.1,727.6 L 598.7,738.4 L 614.4,746.2 L 556.6,747.2 L 541.9,752.1 L 534.1,759.9 L 530.1,768.8 L 530.1,782.5 L 532.1,787.4 L 538.0,793.3 L 546.8,796.2 L 733.0,795.2 L 764.4,790.3 L 800.6,778.6 L 832.0,760.9 L 859.4,735.4 L 874.1,713.9 L 886.8,683.5 L 891.8,661.9 L 893.7,643.3 L 891.8,607.1 L 886.8,585.5 L 878.0,562.0 L 870.2,547.3 L 856.5,528.7 L 839.8,513.0 L 822.2,502.2 L 816.3,474.8 L 806.5,446.3 L 792.8,417.9 L 776.1,391.5 L 760.4,371.9 L 740.8,352.3 L 707.5,328.7 L 684.0,317.0 L 656.5,307.2 L 637.0,302.3 L 605.6,298.4 L 563.5,300.3 L 495.8,316.0 L 467.4,315.0 L 454.7,311.1 L 443.9,305.2 L 414.5,280.7 L 397.8,269.9 L 385.1,264.1 L 370.4,260.1 L 354.7,249.4 L 339.0,241.5 L 315.5,232.7 L 295.9,227.8 L 288.1,228.8 L 285.1,232.7 L 283.2,242.5 L 283.2,265.0 L 259.7,273.9 L 245.9,285.6 L 231.2,283.7 L 178.3,285.6 L 156.8,288.6 Z M 823.2,576.7 L 833.0,595.3 L 838.8,620.8 L 837.8,650.2 L 831.0,672.7 L 816.3,696.2 L 797.7,713.9 L 775.1,726.6 L 748.7,734.5 L 747.7,733.5 L 771.2,714.9 L 784.9,700.2 L 803.5,671.7 L 813.3,648.2 L 819.2,625.7 L 822.2,604.1 Z"/></svg>';
+    const CAT_SPINNER = '<svg viewBox="190 208 1158 1163" aria-hidden="true" focusable="false"><path fill="currentColor" d="M535,541c-.25-7.56,1.82-42.42,9.92-44.8c7.93-2.33,44.19,28.34,50.16,33.34c3.56,2.99,7.06,6.14,9.55,10.12c2.27,3.63,3.49,8.48,6.71,11.32c4.03,3.55,10.1,5.42,14.71,8.32c9.48,5.95,17.53,13.83,24.37,22.65c11.08,14.28,17.48,30.17,26.45,45.56c9.99,17.14,27.3,30.26,44.81,38.96c59.34,29.52,108.99,16.11,170.13,26.66c36.67,6.33,78.62,23.68,108.33,46.21c69.23,52.52,110.51,145.42,112.92,231.25c.78,27.88-.03,55.18-8.35,82.05c-1.67,5.39-7.59,17.32-6.37,22.43c.11,.46,.38,1.58,.66,1.93c4.37,5.32,15.42,.62,20.16-1.58c23.42-10.86,39.26-31.74,48.53-55.3c7.7-19.56,10.83-39.43,10.67-60.39c-.31-40.73-11.21-65.32-30.61-100.19c-8.44-15.16-16.33-29.06-21.54-45.79c-5.07-16.26-6.28-32.04-6.5-48.96c-.29-21.45,5.14-42.59,17.54-60.29c13.97-19.92,27.51-27.14,52.08-26.18c14.61,.58,24.88,13.99,23.86,28.1c-.3,4.16-1.71,8.84-4.55,11.99c-9.92,10.99-22.1,8.77-27.41,26.14c-1.87,6.11-1.64,12.44-1.58,18.76c.39,37.71,22.8,65.15,37.73,97.94c9.23,20.26,16.43,41.76,20.68,63.64c5.6,28.84,3.21,57.65-2.49,86.25c-6.12,30.76-18.13,62.16-38.18,86.6c-19.51,23.79-40.73,41.13-70.22,51.02c-15.34,5.14-32.01,5.5-48.03,5.12c-6.98-.16-14.88-1.14-21.78-.34c-5.19,.61-6.65,3.58-10.36,6.46c-4.94,3.83-13.63,5.73-19.71,6.55c-13.14,1.77-27.14,.92-40.41,.92c-22.23,0-44.46,0-66.69,.05c-22.62,.05-45.24,.15-67.86,.11c-9.29-.01-21.01,1.56-29.87-.9c-6.86-1.91-11.29-8.03-12.46-14.73c-5.46,.24-13.77,1.53-18.95-.52c-15.57-6.18-14.72-29.49-1.2-37.3c2.2-1.28,4.58-1.89,7.09-2.13c9.54-.92,86.49-.91,92.06,.95c0-.66,0-1.32,0-2c-9.57-1.1-21.82-9.5-29.78-14.84c-25.01-16.76-45.48-42.76-47.92-73.74c-.6-7.55,3.04-19.16-2.05-25.27c-5.76-6.92-65.49-32.04-77.25-36.15c-10.54,20.18-17.45,43.31-25.49,64.63c-10.25,27.21-21.69,53.93-31.99,81.11c-4.58,12.09-14.14,43.46-21.28,51.37c-6.15,6.79-18.49,8.88-27.12,9.19c-7.02,.25-14.07,.1-21.09,.19c-14.26,.19-34.23,2.03-37.86-16.32c-2.4-12.11,6.32-24.91,18.02-28.37c5.53-1.63,16.1,.84,19.92-3.32c2.93-3.19,4.96-12.13,5.94-16.37c2.01-8.61,3.08-17.54,4.49-26.27c2.23-13.73,4.58-27.42,6.6-41.19c2.87-19.51,6.6-38.91,8.14-58.59c1.02-13,1.14-26.09-.28-39.06c-57.49,1.03-110.84-16.8-164.32-35.81c-15.42-5.48-42.88-17.23-58.16-18.38c-21.89-1.65-40.94,16.61-62.75,9.02c-.6-.2-1.18-.43-1.76-.69c-32.39-14.09-22.93-52.14,7.33-61.53c7.38-2.29,12.25,1.22,18.62,0c2.73-.52,4.73-2.03,7.12-3.29c3.43-1.79,7.85-2.65,11.67-3.11c8.52-1.04,17.47-.53,26.05-.3c16.15,.45,32.28,1.42,48.39,2.57c29.24,2.09,58.75,3.67,87.81,7.52c-8.44-20.73-8.81-42.56-8.29-64.65c.3-12.66,6.61-23.74-.71-36.35c-9.26-15.95-31.79-2.83-44.77-.26c-7.66,1.51-16.58,1.31-23.85-1.8c-5.03-2.15-10.39-5.88-13.4-10.49c-1.21-1.87-1.93-4.14-3.62-5.66c-1.49-1.35-3.6-2.06-5.32-3.09c-2.88-1.73-5.44-3.94-7.63-6.48c-3.4-3.93-11.91-17.93-12.21-22.85c-.1-1.62,1.22-3.07,2.15-4.26c3.76-4.82,6.55-10.77,8.23-16.64c2.58-9.01,2.16-17.66,2.47-26.88c.69-20.79,8.29-39.2,22.18-54.66c4.86-5.41,10.35-12.36,17.77-13.93c-2.49-10.86-12.41-46.59-10-56c15.48,1.62,47.03,22.77,62,31Z"/><path fill="currentColor" d="M351.49,1192.31c-4.88-4.28-9.03-9.91-13.52-14.67c-30.45-32.27-56.33-69.88-77.21-108.97c-33.02-61.78-55.41-130.74-63.1-200.47c-2.57-23.31-3.14-46.63-3.09-70.06c.04-20.07,.14-40.17,2.11-60.16c10.95-110.84,55.31-218.46,123.85-306.01C440.66,278.5,626.91,197.24,821.13,214.7c142.56,12.81,276.51,80.03,372.49,185.99c29.4,32.46,53.75,67.04,75.29,105.13c19.27,34.07,35.92,68.67,47.5,106.18c3.77,12.18,6.51,24.43,9.57,36.79c3.01,12.18,6.26,24.09,8.54,36.46c5.28,28.65,7.54,57.78,8.38,86.87c1.5,51.9-1.7,102.43-13.2,153.19c-49.14,216.79-220.14,382.81-437.09,428.68c-14.58,3.08-29.02,6.2-43.81,8.14c-24,3.14-48.23,4.12-72.41,4.28c-94.78,.63-183.04-17.13-268.37-59.38c-44.56-22.06-84.34-50.17-122.15-82.28c-12.02-10.21-22.2-22.52-34.38-32.44Zm781.74-5.54c9.52-9.52,19.78-18.09,28.96-28.05c26.58-28.85,49.95-61.67,69.35-95.72c31.6-55.47,55.19-123.31,64.39-186.5c4.01-27.55,5.24-55.33,5.26-83.14c.03-47.38-4.66-95.15-16.51-141.13C1240.86,482.22,1114.74,343.7,949.93,283.8c-12.85-4.67-25.28-9.62-38.51-13.26c-33.34-9.17-69.44-15.75-103.95-18.07c-16.44-1.1-33.11-.77-49.59-.68c-126.12,.69-245.15,51.27-339.06,134.22c-9.52,8.41-19.08,16.71-27.98,25.79c-6.49,6.61-12.1,13.74-18.18,20.67c-55.22,63-95.85,139.09-117.77,219.93c-13.07,48.23-18.95,96.4-19.02,146.32c-.03,17.9,.26,35.81,2.12,53.63c2.55,24.53,7.3,48.99,13.18,72.93c6.7,27.26,14.5,54.6,25.36,80.53c34.3,81.9,89.55,153.01,159.52,207.45c126.11,98.13,286.02,133.93,442.52,102.76c81.39-16.21,159.66-50.67,224.29-103.08c10.18-8.26,21.3-16.73,30.37-26.17Z"/></svg>';
     function getProgressDiv(create = true) {
         const all = document.querySelectorAll("#shc-wishlist-progress");
         if (all.length) {
@@ -2236,58 +2190,50 @@
         div.tabIndex = 0;
         const icon = document.createElement("span");
         icon.className = "shc-wishlist-progress-icon";
-        const cat = document.createElement("span");
-        cat.className = "shc-cat";
-        cat.innerHTML = CAT_SPINNER;
-        const arrow = document.createElement("span");
-        arrow.className = "shc-arrow";
-        arrow.textContent = "↑";
-        icon.append(cat, arrow);
+        const mark = document.createElement("span");
+        mark.className = "shc-mark";
+        mark.innerHTML = CAT_SPINNER;
+        icon.append(mark);
         const label = document.createElement("span");
         label.className = "shc-wishlist-progress-text";
+        label.setAttribute("aria-live", "polite");
+        label.setAttribute("aria-atomic", "true");
         div.append(icon, label);
-        const toTop = event => {
+        let pointerStart = null;
+        let tapped = false;
+        const cancelTap = () => { tapped = false; };
+        // 短列表不一定产生 scroll，必须根据完整指针手势确认点击，而不是只监听按钮上的 touch。
+        window.addEventListener("pointerdown", event => {
+            tapped = event.isPrimary && event.button === 0 && div.contains(event.target);
+            pointerStart = tapped ? { id: event.pointerId, x: event.clientX, y: event.clientY } : null;
+        }, { capture: true, passive: true });
+        const checkPointer = event => {
+            if (!pointerStart || event.pointerId !== pointerStart.id) return;
+            if (Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 4) tapped = false;
+        };
+        window.addEventListener("pointermove", checkPointer, { capture: true, passive: true });
+        window.addEventListener("pointerup", event => {
+            checkPointer(event);
+            if (pointerStart && event.pointerId === pointerStart.id) pointerStart = null;
+        }, { capture: true, passive: true });
+        window.addEventListener("pointercancel", () => {
+            cancelTap();
+            pointerStart = null;
+        }, { capture: true, passive: true });
+        window.addEventListener("wheel", cancelTap, { capture: true, passive: true });
+        window.addEventListener("scroll", cancelTap, { capture: true, passive: true });
+        div.addEventListener("click", event => {
             event.preventDefault();
             event.stopPropagation();
-            if (swiped) {
-                swiped = false;
-                return;
-            }
-            // 页面较短时上滑几乎不产生滚动事件，手指位移也可能很小；
-            // 只要刚刚发生过滚动，就认为这次点击是滑动手势的副产物。
-            if (Date.now() - lastScrollAt < 320) return;
-            scrollWishlistToTop();
-        };
-        let lastScrollAt = 0;
-        window.addEventListener("scroll", () => { lastScrollAt = Date.now(); }, { capture: true, passive: true });
-        // 移动端从底部上滑时手指很容易落在按钮上，touchend 后浏览器仍会补发 click，
-        // 导致"滑一下就回到顶部"。这里记录滑动距离，超过阈值就吞掉这次点击。
-        let swiped = false;
-        let touchStart = null;
-        div.addEventListener("touchstart", event => {
-            swiped = false;
-            const touch = event.touches && event.touches[0];
-            touchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
-        }, { passive: true });
-        // 页面很短时上滑几乎不滚动，touchend 的位移可能只有几像素；
-        // 只要 touchmove 动过 4px 就认定为滑动，别再等 8px 的终点位移。
-        div.addEventListener("touchmove", event => {
-            const touch = event.touches && event.touches[0];
-            if (touch && touchStart && Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > 4) swiped = true;
-        }, { passive: true });
-        div.addEventListener("touchend", event => {
-            const touch = event.changedTouches && event.changedTouches[0];
-            if (touch && (!touchStart || Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > 8)) swiped = true;
-            touchStart = null;
-        }, { passive: true });
-        // 手势被系统/浏览器接管去滚动时会走 touchcancel，同样视为滑动而非点击
-        div.addEventListener("touchcancel", () => {
-            swiped = true;
-            touchStart = null;
-        }, { passive: true });
-        div.addEventListener("click", toTop);
+            const activate = event.detail === 0 || tapped;
+            tapped = false;
+            if (activate) scrollWishlistToTop();
+        });
         div.addEventListener("keydown", event => {
-            if (event.key === "Enter" || event.key === " ") toTop(event);
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            event.stopPropagation();
+            scrollWishlistToTop();
         });
         document.body.appendChild(div);
         return div;
@@ -2304,8 +2250,8 @@
         expectedCount = 0;
         serverWishlistLoaded = false;
         loadPriceCache();
-        mobileFits.clear();
         document.querySelectorAll(".shc-price").forEach(e => e.remove());
+        document.querySelectorAll(".shc-release-discount-time").forEach(removeDiscountTime);
         paintVisibleRows();
         startCollection();
     }
@@ -2319,7 +2265,6 @@
     }, 250);
     function applyViewportMode() {
         const mobile = isMobileUI();
-        document.documentElement.classList.toggle("shc-mobile", mobile);
         const steamMobile = steamMobileLayout(document.querySelector(ROW_SELECTOR));
         const steamChanged = steamMobile !== null && lastSteamMobile !== null && steamMobile !== lastSteamMobile;
         const previous = lastMobile;
@@ -2333,7 +2278,6 @@
             if (row) countdownRows.add(row);
         });
         priceLayoutVersion++;
-        mobileFits.clear();
         countdownRows.forEach(row => paintRow(row));
         paintVisibleRows();
     }
@@ -2357,7 +2301,6 @@
         const changed = [ ...r.addedNodes, ...r.removedNodes ];
         return changed.length > 0 && changed.every(isOwnNode);
     }
-    // ── 入口 ── 等待愿望单 DOM 就绪后启动采集、倒计时、Observer；失败时最多重试 20 次
     function initWishlist(retry = 0) {
         if (document.querySelectorAll(ROW_SELECTOR).length === 0) {
             if (retry < 20) setTimeout(() => initWishlist(retry + 1), 500);
@@ -2376,24 +2319,20 @@
         applyViewportMode();
         window.addEventListener("resize", debounce(applyViewportMode, 250));
         ensureRates().then(scheduleSummary);
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(runMobileFits);
         startCollection();
         startCountdown();
-        // 全局 Observer：站点 DOM 变更时 debounce 触发 syncRows，同时兜住被 React 重建掉的汇总栏
         new MutationObserver(records => {
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
             if (bulkCartButton && !bulkCartButton.isConnected) updateBulkCartButton();
             const external = records.filter(r => !isOwnRecord(r));
             if (lowOnly && external.length) hideNewRowsInLowOnly(external);
             if (external.some(r => r.type === "childList")) scheduleHarvest();
-            if (external.length && mobileFits.size) runMobileFits();
         }).observe(document.body, { childList: true, characterData: true, subtree: true });
         new MutationObserver(dismissSteamCartDialogs).observe(document.body, {
             childList: true, subtree: true, attributes: true, attributeFilter: [ "open" ]
         });
         dismissSteamCartDialogs();
     }
-    // ── 样式注入 ── 全部选择器加 .shc- 前缀避免冲突；移动端规则集中在 .shc-mobile 媒体标记下
     GM_addStyle(`
         .shc-cc { position: relative; display: inline-flex; }
         .shc-cc-btn { display: inline-flex; align-items: center; gap: 3px;
@@ -2417,8 +2356,8 @@
         .shc-price.side { width: auto; min-width: 0; max-width: 340px; flex: 0 1 auto;
             text-align: left; margin: 0 clamp(6px, 1vw, 14px) 0 0; line-height: 1.5; }
         .shc-summary { display: flex; align-items: center; flex-wrap: wrap;
-            box-sizing: border-box; width: 100%; min-width: 0; gap: clamp(6px, 1.1vw, 12px);
-            margin: 6px 0 12px; padding: 10.5px clamp(8px, 1.4vw, 12px);
+            box-sizing: border-box; width: 100%; min-width: 0; gap: 0 clamp(6px, 1.1vw, 12px);
+            line-height: 24px; margin: 6px 0 12px; padding: 10.5px clamp(8px, 1.4vw, 12px);
             background: #132434; border: 1px solid rgba(255,255,255,.08); border-radius: 4px;
             font-size: 11.5px; color: #acb2b8; font-family: 'Motiva Sans', Arial, sans-serif;
             -webkit-user-select: text; user-select: text; position: sticky; top: 0; z-index: 900; }
@@ -2427,21 +2366,19 @@
         .shc-summary .cur { color: #fff; font-weight: 600; }
         .shc-summary .save { color: #a5cb00; }
         .shc-summary .warn { color: #ffc53d; }
-        .shc-summary-body { display: contents; }
-        .shc-summary .shc-seg { display: inline-flex; align-items: baseline; gap: 4px;
-            flex: 0 0 auto; white-space: nowrap; }
-        .shc-bulk-title-row { min-width: 0; }
-        /* 抽屉开关是 Steam 原生按钮的克隆，自带 Focusable 的 10px 左内边距；
-           归零后首行文字与换行后的内容共用同一条左基准线（即 "N 项史低中" 的 N）。 */
-        .shc-summary button.shc-low-toggle { flex-shrink: 0; margin: 0; padding-left: 0;
-            font-weight: 600; font-size: 12px; }
+        .shc-summary-body { display: block; flex: 1 1 auto; min-width: 0;
+            line-height: inherit; white-space: normal; text-align: left; }
+        .shc-summary .shc-summary-body > :not(:last-child) { margin-right: .5em; }
+        .shc-summary .shc-seg { display: inline; }
+        .shc-summary .shc-seg > .label, .shc-summary .shc-seg > .dim { white-space: nowrap; }
+        .shc-summary .main, .shc-summary .cur, .shc-summary .shc-money { white-space: normal; word-break: break-all; }
+        .shc-bulk-title-row { min-width: 0; flex: 1 1 auto; align-self: stretch; }
+        .shc-summary button.shc-low-toggle { display: inline-flex; vertical-align: baseline;
+            margin: 0; padding-block: 0; padding-left: 0; line-height: 24px; white-space: nowrap; font-weight: 600; font-size: 12px; }
         .shc-low-toggle:not(.Focusable) { display: inline-flex; align-items: center; gap: 4px;
             padding: 2px 5px 2px 0; border: 0; background: transparent; color: #fff; font: inherit; cursor: pointer; }
         .shc-low-toggle:not(.Focusable) > svg { width: 12px; height: 12px; }
         .shc-low-toggle:not(.Focusable)[aria-expanded="true"] { color: #1a9fff; text-decoration: underline; text-underline-offset: 4px; }
-        .shc-low-hidden { display: none !important; }
-        body.shc-low-only div.Panel[data-index]:not(.shc-at-low-row),
-        body.shc-low-only .wishlist_row[data-appid]:not(.shc-at-low-row) { display: none !important; }
         .shc-low-drawer-open { box-sizing: border-box; padding: 6px;
             border-radius: 4px; background: rgba(23,29,37,.35); }
         .shc-low-drawer-enter { animation: shc-low-drawer-in .18s ease-out; }
@@ -2452,12 +2389,14 @@
             font: 600 12px 'Motiva Sans', Arial, sans-serif; white-space: nowrap; }
         #shc-bulk-cart:hover:not(:disabled) { background: linear-gradient(90deg, #82b92c, #a0ce4e); color: #fff; }
         #shc-bulk-cart:disabled { opacity: .45; cursor: default; }
-        #shc-country-controls { display: flex; align-items: center; gap: 6px; margin-left: auto;
-            flex: 0 1 auto; min-width: 0; max-width: 100%; white-space: nowrap; }
-        #shc-sale-countdown { display: inline-flex; align-items: baseline; gap: 1.5px; font-size: 12px; white-space: nowrap; line-height: 1.25; }
+        #shc-country-controls { display: block; margin-left: auto; text-align: right;
+            flex: 0 1 auto; min-height: 24px; min-width: 0; max-width: 100%; line-height: 24px; white-space: normal; }
+        #shc-country-controls > .shc-cc { margin-left: 6px; height: 24px; align-items: center; vertical-align: top; white-space: nowrap; }
+        #shc-sale-countdown { display: inline; font-size: 12px; line-height: inherit; }
+        #shc-sale-countdown > span { white-space: nowrap; }
         #shc-sale-countdown .shc-cd-date { color: #66c0f4; font-weight: 600; }
         #shc-sale-countdown .shc-cd-state, #shc-sale-countdown .shc-cd-unit { color: #8b929a; }
-        #shc-sale-countdown .shc-cd-num { color: #8b5cf6; font-weight: 600; }
+        #shc-sale-countdown .shc-cd-num { margin-right: 1.5px; color: #8b5cf6; font-weight: 600; }
         #shc-wishlist-progress { position: fixed; bottom: calc(env(safe-area-inset-bottom, 0px) + 52px); right: calc(env(safe-area-inset-right, 0px) + 12px);
             z-index: 9999; box-sizing: border-box; max-width: 82vw; min-height: 32px;
             background: rgba(23,29,37,.70); border: 1px solid rgba(255,255,255,.12); border-radius: 5.5px;
@@ -2466,35 +2405,43 @@
         #shc-wishlist-progress.show { display: flex; }
         #shc-wishlist-progress:hover { background: rgba(23,29,37,.88); border-color: rgba(255,255,255,.24); }
         #shc-wishlist-progress .shc-wishlist-progress-icon { display: inline-flex; align-items: center; flex: 0 0 auto; }
-        #shc-wishlist-progress .shc-wishlist-progress-text { min-width: 0; }
-        #shc-wishlist-progress .shc-cat { display: none; width: 15px; height: 15px; color: #e8ebee; }
-        #shc-wishlist-progress .shc-cat svg { display: block; width: 100%; height: 100%; }
-        #shc-wishlist-progress .shc-arrow { font-size: 11px; line-height: 1; color: #acb2b8; }
-        #shc-wishlist-progress.loading .shc-cat { display: block; }
-        #shc-wishlist-progress.loading .shc-arrow { display: none; }
-        #shc-wishlist-progress.loading .shc-cat svg { animation: shc-cat-spin 3.4s cubic-bezier(.42,0,.58,1) infinite; }
-        @keyframes shc-cat-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        #shc-wishlist-progress .shc-wishlist-progress-text { min-width: 0; transition: opacity .15s ease; }
+        #shc-wishlist-progress .shc-wishlist-progress-text.changing { opacity: 0; }
+        #shc-wishlist-progress .shc-mark { display: inline-flex; align-items: center; width: 15px; height: 15px; color: #e8ebee; }
+        #shc-wishlist-progress .shc-mark svg { display: block; width: 100%; height: 100%; }
+        #shc-wishlist-progress.loading .shc-mark svg { animation: shc-mark-spin 3.4s cubic-bezier(.42,0,.58,1) infinite; }
+        @keyframes shc-mark-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
-        .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
-        @media (max-width: 600px) {
-            .shc-summary .save { flex: 1 1 0; min-width: 5em; }
+
+        @media (max-width: 720px), (pointer: coarse) and (max-width: 900px) {
+            .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
+            .shc-low-drawer-open { padding: 4px; }
+            #shc-bulk-cart { min-height: 30px; padding: 0 10px; font-size: 11px; }
+            #shc-country-controls { display: flex; flex-wrap: nowrap; justify-content: flex-end;
+                align-items: center; flex: 0 0 auto; line-height: 22px; }
+            #shc-country-controls > .shc-cc { flex: 0 0 auto; margin-left: 3px; height: 22px; }
+            .shc-cc-btn { padding: 1px 4px; font-size: 11px; gap: 2px; }
+            #shc-sale-countdown { flex: 0 1 auto; min-width: 0; overflow: hidden;
+                white-space: nowrap; text-overflow: ellipsis; font-size: 11px; word-spacing: -1.5px; }
+            #shc-sale-countdown .shc-cd-date { display: none; }
+            #shc-sale-countdown .shc-cd-num { display: inline-block; min-width: 2ch;
+                text-align: right; font-variant-numeric: tabular-nums; }
+            .shc-price.compact { margin-top: 2px; line-height: 1.35;
+                font-size: 12px; max-width: 100%; min-width: 0;
+                white-space: normal; overflow-wrap: anywhere; }
+            .shc-release-discount-time { position: static; display: block;
+                width: auto; white-space: nowrap; }
+            .shc-price .shc-release-discount-time { margin: 0 0 2px; }
+            .shc-mobile-price-card { grid-template-rows: 30px auto 28px 25px minmax(42px, auto) minmax(40px, auto); }
+            .shc-price.compact.mobile-info { flex: 0 1 auto; align-self: start; justify-self: end;
+                position: relative; top: -3.5px;
+                width: max-content; min-width: 0; max-width: 55%; margin: 0 0 0 8px; padding: 0;
+                font-size: 10px; line-height: 1.25; text-align: right; white-space: normal; overflow-wrap: anywhere; }
+            .shc-price.compact.mobile-info .shc-mobile-lowline,
+            .shc-price.compact.mobile-info .shc-mobile-currentline { display: inline; }
+            .shc-price.compact.mobile-info .shc-mobile-currentline { margin-left: 3px; }
+            .shc-price.compact.mobile-info .shc-discount { display: none; }
         }
-        .shc-mobile .shc-low-drawer-open { padding: 4px; }
-        .shc-mobile .shc-bulk-title-row { align-self: stretch; }
-        .shc-mobile #shc-bulk-cart { min-height: 30px; padding: 0 10px; font-size: 11px; }
-        .shc-mobile #shc-sale-countdown { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-        .shc-mobile .shc-price.compact { margin-top: 2px; line-height: 1.35;
-            font-size: 12px; max-width: 100%; min-width: 0;
-            white-space: normal; overflow-wrap: anywhere; }
-        .shc-mobile .shc-release-discount-time { position: static; display: block;
-            width: auto; white-space: nowrap; }
-        .shc-mobile .shc-price .shc-release-discount-time { margin: 0 0 2px; }
-        .shc-mobile .shc-price.compact.purchase-inline { font-size: 11px; line-height: 1.2;
-            white-space: nowrap; overflow: visible; display: flex; flex-direction: column;
-            justify-content: center; gap: 1px; }
-        .shc-mobile .shc-price.compact.purchase-inline .shc-mobile-lowline,
-        .shc-mobile .shc-price.compact.purchase-inline .shc-mobile-currentline { white-space: nowrap; }
-        .shc-mobile .shc-price.compact.purchase-inline.tight .shc-discount { display: none; }
     `);
     initWishlist();
 })();
