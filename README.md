@@ -145,7 +145,7 @@
 
 ## beerlee：Steam-Registerkey-Enhancer
 作者: [beerlee](https://github.com/beerleexc)
-- [GreasyFork]](https://greasyfork.org/zh-CN/scripts/605973)
+- [GreasyFork](https://greasyfork.org/zh-CN/scripts/605973)
 - [GitHub](https://github.com/beerleexc/Steam-Registerkey-Enhancer)
 
 ## marioplus：Steam-Price-Converter
