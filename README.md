@@ -109,7 +109,11 @@
 > * **PC端**：推荐使用 [Tampermonkey](http://tampermonkey.net/)
 > * **iOS端**：推荐使用 [Stay](https://apps.apple.com/cn/app/stay-for-safari-%E7%94%A8%E6%88%B7%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA%E6%8F%92%E4%BB%B6/id1591620171)
 > * **Steam客户端**：推荐使用 [脚本猫](https://scriptcat.org/zh-CN)
-> ## [安装地址](https://greasyfork.org/zh-CN/scripts/605431-steam%E6%84%BF%E6%9C%9B%E5%8D%95%E5%A2%9E%E5%BC%BA)
+---
+## 安装地址
+> * [Github](https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases)
+> * [GreasyFork](https://greasyfork.org/zh-CN/scripts/605431)
+> * [脚本猫](）
 ---
 
 <a id="数据来源"></a>
@@ -126,8 +130,9 @@
 <a id="问题反馈"></a>
 # 🐛 [问题反馈](#目录导航)
 如有 Bug、功能建议，欢迎提交 [**Issues**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues)
+---
 
-<a id="说明"></a>
+<a id="使用说明"></a>
 # 📝 [使用说明](#目录导航)
 > [!note]
 > **注意：**
@@ -139,6 +144,7 @@
 <a id="license"></a>
 # 📄 [开源许可](#目录导航)
 本项目基于[**MIT License**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
+---
 
 <a id="相关推荐"></a>
 # 🪁 相关推荐
@@ -153,8 +159,9 @@
 - [GreasyFork](https://greasyfork.org/zh-CN/scripts/452504)
 - [GitHub](https://github.com/marioplus/steam-price-converter)
 
+---
 
-<a id="支持一下"></a>
+<a id="支持作者"></a>
 # 💗 [支持作者](#目录导航)
 **喜欢的话就点个⭐Star 吧(°∀°)ﾉ**
 **或者也可以考虑捐助支持一下哦(｀・ω・´)**
