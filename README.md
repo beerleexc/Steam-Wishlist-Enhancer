@@ -30,8 +30,6 @@
 > * [效果展示](#效果展示)
 >     * [功能概览](#功能概览)
 >     * [国家切换](#国家切换)
->     * [移动端适配](#移动端适配)
->     * [客户端适配](#客户端适配)
 >     * [返回顶部按钮](#返回顶部按钮)
 >     * [折扣倒计时](#折扣倒计时)
 >     * [只看史低](#只看史低)
@@ -95,10 +93,12 @@
   
 * 按地区自动选择历史最低价来源：中国/美国/印度/印尼/日本使用ITAD的数据来源。乌克兰/俄罗斯/独联体/阿根廷/土耳其使用小黑盒 API。
 
-## 返回顶部按钮
-![pretty cat](assets/CleanShot_14.40.46.png)
+## 返回顶部按钮 
+<p align="center">
+<img src="assets/CleanShot_14.40.46.png" width="100%">
+</p>
 
-按钮会显示愿望单的已加载成功的项目数量，点击可返回愿望单顶部。
+* 按钮会显示愿望单的已加载成功的项目数量，点击可返回愿望单顶部。
 
 ## 折扣倒计时
 ![折扣倒计时](assets/CleanShot_00.21.14.png)
@@ -107,13 +107,15 @@
 ## 只看史低
 ![只看史低](assets/CleanShot_11.45.20.png)
 
-点击切换愿望单价格处于史低的游戏，此时汇总栏只统计史低页的游戏价格。在此页面点击全部加购按钮，只加购史低页的游戏。
+* 点击切换愿望单价格处于史低的游戏，此时汇总栏只统计史低页的游戏价格。
+* 在此页面点击全部加购按钮，只加购史低页的游戏。
 
 <a id="一键加购"></a>
 ## 一键加购
 ![全部加购](assets/CleanShot_12.00.26.png)
 
-可以一键加购整个愿望单的项目，当开启“只看史低”时，仅把史低游戏加入购物车。开启脚本会会自动跳过 steam 的加入购物车成功提示的弹窗。
+* 可以一键加购整个愿望单的项目，当开启“只看史低”时，仅把史低游戏加入购物车。
+* 开启脚本会会自动跳过 steam 的加入购物车成功提示的弹窗。
 
 <a id="使用与安装"></a>
 # 📥 [使用与安装](#目录导航)
@@ -161,10 +163,10 @@
 <a id="相关推荐"></a>
 # 🪁 相关推荐
 
-## beerlee：Steam-Wishlist-Enhancer
+## beerlee：Steam-Registerkey-Enhancer
 作者: [beerlee](https://github.com/beerleexc)
-- [GreasyFork](https://greasyfork.org/zh-CN/scripts/605431)
-- [GitHub](https://github.com/beerleexc/Steam-Wishlist-Enhancer)
+- [GreasyFork](https://greasyfork.org/zh-CN/scripts/605973)
+- [GitHub](https://github.com/beerleexc/Steam-Registerkey-Enhancer)
 
 ## marioplus：Steam-Price-Converter
 作者: [marioplus](https://github.com/marioplus)
@@ -178,8 +180,8 @@
 **喜欢的话就点个⭐Star 吧(°∀°)ﾉ**
 **或者也可以考虑捐助支持一下哦(｀・ω・´)**
 <p align="center">
-<img src="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/assets/WeChat.JPG" width="48%">
-<img src="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/assets/AliPay.PNG" width="48%">
+<img src="assets/WeChat.JPG" width="48%">
+<img src="assets/AliPay.PNG" width="48%">
 </p>
 
 作者：**beerlee**  
