@@ -76,8 +76,8 @@
 ![折扣倒计时](assets/CleanShot_11.47.14.png)
 
 <p align="center">
-<img src="assets/CleanShot_12.24.48.png" width="76%">
-<img src="assets/IMG_3784.jpg" width="23%">
+<img src="assets/CleanShot_12.24.48.png" width="74%">
+<img src="assets/IMG_3784.jpg" width="25%">
 </p>
 
 * 自动加载愿望单游戏，显示当前价格、历史史低价；
