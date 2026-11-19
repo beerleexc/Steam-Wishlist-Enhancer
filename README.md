@@ -146,5 +146,7 @@
 <p align="center">
 <img src="assets/AliPay.PNG" width="48%">
 <img src="assets/WeChat.JPG" width="48%">
-</p>作者：**beerlee**  
+</p>
+
+作者：**beerlee**  
 版本：**1.8.3**
