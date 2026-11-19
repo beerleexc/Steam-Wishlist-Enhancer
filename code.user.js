@@ -4,7 +4,7 @@
 // @description Steam愿望单页面功能增强，可在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.4
+// @version     1.8.5
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -847,9 +847,9 @@
         const sig = `${dataVersion}|${wishlistIds.size}|${fetchedKeys.size}|${fxLive ? 1 : 0}${fxTried ? 1 : 0}`;
         if (sumCache && sumCache.sig === sig) return sumCache.value;
         let counted = 0, noLow = 0, atLow = 0, missing = 0;
-        let lowSum = 0, curSum = 0, saveSum = 0;
+        let lowSum = 0, curSum = 0, saveSum = 0, atLowSum = 0;
         const currencies = new Set;
-        const lowNative = {}, curNative = {};
+        const lowNative = {}, curNative = {}, atLowNative = {};
         wishlistIds.forEach((_, key) => {
             const info = prices[key];
             if (info && info.noPrice) return;
@@ -871,7 +871,11 @@
                 curSum += curCNY;
                 curNative[cp.currency] = (curNative[cp.currency] || 0) + cp.amount;
                 if (lowCNY != null) {
-                    if (isAtHistoricalLow(info.lowest, info.current)) atLow++;
+                    if (isAtHistoricalLow(info.lowest, info.current)) {
+                        atLow++;
+                        atLowSum += curCNY;
+                        atLowNative[cp.currency] = (atLowNative[cp.currency] || 0) + cp.amount;
+                    }
                     saveSum += Math.max(0, curCNY - lowCNY);
                 }
             } else {
@@ -886,6 +890,8 @@
             missing: missing,
             ratesMissing: !fxLive && fxTried,
             atLow: atLow,
+            atLowSum: atLowSum,
+            atLowNative: atLowNative,
             lowSum: lowSum,
             curSum: curSum,
             save: saveSum,
@@ -1173,9 +1179,7 @@
         host.classList.toggle("shc-low-drawer-open", lowOnly);
         return host;
     }
-    // 抽屉展开时 Steam 会随滚动重建行节点，新节点在 paintRow 之前是可见的，逐帧闪回原生列表。
-    // 这里在 MutationObserver 回调里先无条件补类（paintRow 拿不到链接时会提前返回，类就补不上），
-    // 再尽量同步绘制，配合 .shc-low-drawer-open 的 CSS 规则避免闪现。
+    // 抽屉展开时 Steam 滚动会重建行节点，需在观察器回调里先无条件补类再尽量同步绘制，避免逐帧闪回原生列表。
     function hideNewRowsInLowOnly(records) {
         records.forEach(record => record.addedNodes.forEach(node => {
             if (node.nodeType !== 1) return;
@@ -1270,8 +1274,11 @@
             return keys.length === 1 ? formatPrice(map[keys[0]], keys[0]) + T.native(formatCNY(cny)) : formatCNY(cny);
         };
         const seg = html => `<span class="shc-seg">${html}</span>`;
-        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ seg(`<span class="label">${T.lowTotal}</span> <span class="main">${noLowAtAll ? "—" : totalText(s.lowSum, s.lowNative)}</span>`) , seg(`<span class="dim">${T.currentTotal}</span> <span class="cur">${totalText(s.curSum, s.curNative)}</span>`) ];
-        if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(`<span class="shc-money">${formatCNY(s.save)}</span>`)}</span>`);
+        // 史低视图只展示史低游戏，合计即该页金额，不再显示史低合计与史低可省
+        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ]
+            : lowOnly ? [ seg(`<span class="dim">${T.currentTotal}</span> <span class="cur">${totalText(s.atLowSum, s.atLowNative)}</span>`) ]
+            : [ seg(`<span class="label">${T.lowTotal}</span> <span class="main">${noLowAtAll ? "—" : totalText(s.lowSum, s.lowNative)}</span>`) , seg(`<span class="dim">${T.currentTotal}</span> <span class="cur">${totalText(s.curSum, s.curNative)}</span>`) ];
+        if (!lowOnly && !s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(`<span class="shc-money">${formatCNY(s.save)}</span>`)}</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
         if (s.noLow) parts.push(`<span class="warn">${T.noLow(s.noLow)}</span>`);
@@ -1682,8 +1689,7 @@
         }
         return null;
     }
-    // 史低/当前价格行沿用"发行日期"行的原生文字样式（字体随标签、值用白色、
-    // 史低/当前字样用标签灰色）；史低/锁区行保留脚本的加粗与蓝/红配色。
+    // 史低/当前价格行沿用"发行日期"行的原生文字样式；史低/锁区行保留脚本加粗与蓝/红配色。
     function applyNativePriceStyle(el, row) {
         const label = directLabelOf(row, RELEASE_LABEL_RE);
         if (!label) return;
@@ -1710,9 +1716,7 @@
             const card = cardGridOf(row, leaf || item || anchor, true);
             const lower = card && [ ...card.children ].find(n => /\blower\b/.test(getComputedStyle(n).gridArea));
             if (lower) {
-                // Steam 愿望单卡片在不同断点有两套网格：≤500px 是 6 行(tags/capsule/title/mid/lower/purchase)，
-                // 501~910px 是 4 行(title/mid/lower/purchase)。脚本移动端判定(≤720px)会同时命中两者，
-                // 把 6 行行高硬套到 4 行网格会让 lower/purchase 行被压小、内容溢出，故按实际行数选对应模板。
+                // Steam 在 ≤500px 用 6 行网格、501~910px 用 4 行网格，按实际行数选对应行高模板，避免错配溢出。
                 const rowCount = getComputedStyle(card).gridTemplateRows.split(" ").filter(Boolean).length;
                 card.classList.toggle("shc-mobile-price-card", rowCount === 6);
                 card.classList.toggle("shc-mobile-price-card-4", rowCount === 4);
@@ -1794,9 +1798,7 @@
         if (!capsule) return null;
         return { capsule, title: areaCellOf(row, "title") };
     }
-    // 无"我的类别"行的卡（好友愿望单）：倒计时右对齐落在 mid 格，与有类别行页面
-    // （placeDiscountOnCategoryLine 把倒计时挂进 mid 行）保持同一行位置；价格仍留在 lower。
-    // 倒计时以行内元素贴右排布（类别行与 mid 行共用）。
+    // 无"我的类别"行的卡（好友愿望单）：倒计时贴右落在 mid 格，与有类别行页面保持同一行位置。
     function styleDiscountInline(el) {
         restoreDiscountPurchase(el);
         el.style.position = "static";
@@ -1866,8 +1868,7 @@
         const label = directLabelOf(row, CATEGORY_LABEL_RE);
         let line = label && label.parentElement;
         if (!line) return null;
-        // Steam 会把这一行包在更宽的同级 flex 容器里（整块信息区），向上爬到最宽的那层，
-        // margin-left:auto 才能真正贴到卡片右侧。
+        // Steam 会把该行包在更宽的同级 flex 容器里，向上爬到最宽一层，margin-left:auto 才能真正贴右。
         for (let i = 0; i < 3; i++) {
             const up = line.parentElement;
             if (!up || up === row) break;
@@ -1925,9 +1926,7 @@
         const panel = row && row.querySelector("div.Panel");
         const areas = panel && getComputedStyle(panel).gridTemplateAreas;
         if (!areas || areas === "none") return null;
-        // 桌面端（自己或他人愿望单）卡片网格含 dragger（排序拖柄）/ remove 等桌面专有区域。
-        // 若仅靠 purchase 出现次数 > 1 判定移动端，他人愿望单的桌面端会被误判并套上移动端
-        // 紧凑排版，导致样式错乱，故含 dragger/remove 一律视为桌面端。
+        // 卡片网格含 dragger/remove 等桌面专有区域时一律视为桌面端，防止他人愿望单被误判成移动端。
         if (/\b(?:dragger|remove)\b/.test(areas)) return false;
         const purchaseRow = (areas.match(/"[^"]+"/g) || []).find(area => /\bpurchase\b/.test(area));
         if (!purchaseRow) return null;
@@ -1979,8 +1978,7 @@
         const releaseRow = releaseLabel && releaseLabel.parentElement;
         const categoryLabel = directLabelOf(row, CATEGORY_LABEL_RE);
         const steamMobile = steamMobileLayout(row);
-        // 行级 grid 检测会因懒渲染/重建暂时读不到，只能用来说明"确实已经是移动网格"；
-        // 视口已经是移动端时不能被它否掉，否则同一行会在两种排版间来回跳。
+        // 行级检测只用于确认"确实是移动网格"，视口已是移动端时不能被它否掉，避免两种排版来回跳。
         const mobile = steamMobile === true || isMobileUI();
         const priceHost = mobile ? row.querySelector(".shc-price") : null;
         const cartLabel = mobile ? directLabelOf(row, CART_LABEL_RE) : null;
@@ -2039,8 +2037,7 @@
                 paintDiscountTime(el);
                 return;
             }
-            // 行节点正在被 Steam 重建时读不到封面格，先隐藏，等下一秒 tick 重试，
-            // 避免退回到购买格/发行日期行造成上下跳动。
+            // 行节点正被 Steam 重建时先隐藏，下一秒 tick 重试，避免退回购买格造成上下跳动。
             el.style.display = "none";
             el.dataset.end = String(current.discountEndsAt);
             paintDiscountTime(el);
@@ -2329,9 +2326,7 @@
         lastMobile = mobile;
         lastSteamMobile = steamMobile;
         updateBulkCartButton();
-        // Steam 自身也在 resize 后延迟重排卡片网格，且只改类名不增删节点，childList 观察器
-        // 不会触发。无论跨模式（桌面↔移动）还是同模式内换网格模板（500↔600px 六行↔四行），
-        // 都在 Steam 重排落定后再强制重画一遍，避免停留在过渡混合样式。
+        // Steam 在 resize 后延迟重排网格且只改类名，观察器不触发；落定后再强制重画一遍，避免停留过渡混合样式。
         clearTimeout(viewportSettleTimer);
         viewportSettleTimer = setTimeout(() => {
             priceLayoutVersion++;
