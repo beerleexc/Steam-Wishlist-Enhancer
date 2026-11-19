@@ -42,6 +42,7 @@
 > * [说明](#说明)
 > * [问题反馈](#问题反馈)
 > * [开源许可](#license)
+> * [支持一下](#支持一下)
 
 ---
 
@@ -138,6 +139,7 @@
 ## 📄 [开源许可](#目录导航)
 本项目基于[**MIT License**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
 
+## 支持一下
 <p align="center">
 <img src="assets/AliPay.PNG" width="48%">
 <img src="assets/WeChat.JPG" width="48%">
