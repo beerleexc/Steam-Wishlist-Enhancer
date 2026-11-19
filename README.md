@@ -41,7 +41,7 @@
 > * [说明](#说明)
 > * [问题反馈](#问题反馈)
 > * [开源许可](#license)
-> * [支持一下](#支持一下)
+> * [支持作者](#支持一下)
 ---
 <a id="核心功能"></a>
 ## ✨ [核心功能](#目录导航)
@@ -140,11 +140,11 @@
 本项目基于[**MIT License**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
 
 <a id="支持一下"></a>
-##  [支持一下](#目录导航)
+## 💗 [支持作者](#目录导航)
+**喜欢的话就点个⭐Star 吧(°∀°)ﾉ**
+**或者也可以考虑捐助支持一下哦(｀・ω・´)**
 <p align="center">
 <img src="assets/AliPay.PNG" width="48%">
 <img src="assets/WeChat.JPG" width="48%">
-</p>
-
-作者：**beerlee**  
+</p>作者：**beerlee**  
 版本：**1.8.3**
