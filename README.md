@@ -123,10 +123,12 @@
 > **脚本管理器安装：**
 > * **PC端**：推荐使用 [Tampermonkey](http://tampermonkey.net/)
 > * **iOS端**：推荐使用 [Stay](https://apps.apple.com/cn/app/stay-for-safari-%E7%94%A8%E6%88%B7%E8%84%9A%E6%9C%AC%E4%B8%8E%E5%B9%BF%E5%91%8A%E6%8B%A6%E6%88%AA%E6%8F%92%E4%BB%B6/id1591620171)
+
 > * **Steam客户端**：推荐使用 [脚本猫](https://scriptcat.org/zh-CN)
 ---
 ## 安装地址
 > * [Github](https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases)
+
 > * [GreasyFork](https://greasyfork.org/zh-CN/scripts/605431)
 ---
 
