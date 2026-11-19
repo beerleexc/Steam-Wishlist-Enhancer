@@ -149,10 +149,10 @@
 <a id="相关推荐"></a>
 # 🪁 相关推荐
 
-## beerlee：Steam-Registerkey-Enhancer
+## beerlee：Steam-Wishlist-Enhancer
 作者: [beerlee](https://github.com/beerleexc)
-- [GreasyFork](https://greasyfork.org/zh-CN/scripts/605973)
-- [GitHub](https://github.com/beerleexc/Steam-Registerkey-Enhancer)
+- [GreasyFork](https://greasyfork.org/zh-CN/scripts/605431)
+- [GitHub](https://github.com/beerleexc/Steam-Wishlist-Enhancer)
 
 ## marioplus：Steam-Price-Converter
 作者: [marioplus](https://github.com/marioplus)
@@ -166,8 +166,8 @@
 **喜欢的话就点个⭐Star 吧(°∀°)ﾉ**
 **或者也可以考虑捐助支持一下哦(｀・ω・´)**
 <p align="center">
-<img src="assets/AliPay.PNG" width="48%">
-<img src="assets/WeChat.JPG" width="48%">
+<img src="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/assets/WeChat.JPG" width="48%">
+<img src="https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/assets/AliPay.PNG" width="48%">
 </p>
 
 作者：**beerlee**  
