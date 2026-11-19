@@ -141,7 +141,7 @@
 本项目基于[**MIT License**](https://github.com/beerleexc/Steam-Wishlist-Enhancer/blob/main/LICENSE)开源，欢迎学习与使用。
 
 <a id="相关推荐"></a>
-#🪁 相关推荐
+# 🪁 相关推荐
 
 ## pakku：Steam-Registerkey-Enhancer
 作者: [beerlee](https://github.com/beerleexc)
