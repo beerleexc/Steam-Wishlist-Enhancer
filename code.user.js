@@ -4,7 +4,7 @@
 // @description 一个仅作用于 Steam 愿望单页面的用户脚本，用来在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.1
+// @version     1.8.2
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -45,7 +45,7 @@
             bulkViewChanged: "视图或地区已变化，请重新点击",
             bulkScope: (low, n) => `一次加入${low ? "当前史低" : "整个愿望单"} ${n} 项；自动跳过免费、锁区、已拥有及重复项目`,
             bulkSkipped: s => `跳过：已拥有 ${s.owned}，锁区 ${s.locked}，不可购买 ${s.unavailable}，重复 ${s.duplicate}，已加购 ${s.added}`,
-            startsIn: "距开始", endsIn: "距结束", days: "天", hours: "时", minutes: "分", seconds: "秒",
+            startsIn: "距开始", endsIn: "距结束", days:"天", hours:"时", minutes:"分", seconds:"秒",
             discountLeft: "促销截止：", discountEndsAt: value => `折扣截止：${value}`,
             native: value => `（${value}）`,
             saleTitle: (sale, start, end) => `${sale.label} 太平洋时间 ${formatSaleDate(start)} 开幕 — ${formatSaleDate(end)} 收摊｜北京 ${new Date(start).toLocaleString("zh-CN")} — ${new Date(end).toLocaleString("zh-CN")}`
@@ -1192,11 +1192,28 @@
     }
     function syncLowOnly() {
         document.querySelectorAll(ROW_SELECTOR).forEach(row => syncLowOnlyRow(row));
+        // 挂在 body 上而不是列表容器上：Steam 重建列表容器时规则依然生效，不会有一帧露出原生列表。
+        document.body.classList.toggle("shc-low-only", lowOnly);
         const host = rowsHost();
         if (!host) return null;
         if (!host.id) host.id = "shc-low-drawer";
         host.classList.toggle("shc-low-drawer-open", lowOnly);
         return host;
+    }
+    // 抽屉展开时 Steam 会随滚动重建行节点，新节点在 paintRow 之前是可见的，逐帧闪回原生列表。
+    // 这里在 MutationObserver 回调里先无条件补类（paintRow 拿不到链接时会提前返回，类就补不上），
+    // 再尽量同步绘制，配合 .shc-low-drawer-open 的 CSS 规则避免闪现。
+    function hideNewRowsInLowOnly(records) {
+        records.forEach(record => record.addedNodes.forEach(node => {
+            if (node.nodeType !== 1) return;
+            const rows = node.matches(ROW_SELECTOR) ? [ node ] : [ ...node.querySelectorAll(ROW_SELECTOR) ];
+            rows.forEach(row => {
+                syncLowOnlyRow(row);
+                paintRow(row);
+            });
+        }));
+        const host = rowsHost();
+        if (host && !host.classList.contains("shc-low-drawer-open")) syncLowOnly();
     }
     function restoreNativeLowCount() {
         if (nativeLowCountNode && nativeLowCountNode.isConnected) {
@@ -1251,6 +1268,12 @@
         lowOnly = !lowOnly;
         renderSummary();
         if (!lowOnly) return;
+        // 入场动画只在用户展开时播一次；跟着容器类走的话，滚动重建容器会把动画一起重播，表现为"闪一下"
+        const host = rowsHost();
+        if (host) {
+            host.classList.add("shc-low-drawer-enter");
+            setTimeout(() => host.classList.remove("shc-low-drawer-enter"), 260);
+        }
         queuePrices();
         scrollWishlistToTop();
     }
@@ -1276,7 +1299,8 @@
             const keys = Object.keys(map).filter(c => c !== "CNY" && map[c] > 0);
             return keys.length === 1 ? T.native(formatPrice(map[keys[0]], keys[0])) : "";
         };
-        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ `<span class="label">${T.lowTotal}</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`, `<span class="dim">${T.currentTotal}</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>` ];
+        const seg = html => `<span class="shc-seg">${html}</span>`;
+        const parts = s.ratesMissing ? [ `<span class="warn">${T.ratesMissing}</span>` ] : [ seg(`<span class="label">${T.lowTotal}</span><span class="main">${noLowAtAll ? "—" : formatCNY(s.lowSum) + nativeText(s.lowNative)}</span>`) , seg(`<span class="dim">${T.currentTotal}</span><span class="cur">${formatCNY(s.curSum) + nativeText(s.curNative)}</span>`) ];
         if (!s.ratesMissing && s.save > .005) parts.push(`<span class="save">${T.saveAtLow(formatCNY(s.save))}</span>`);
         const nonCNY = s.currencies.filter(c => c !== "CNY");
         if (nonCNY.length && s.currencies.length > 1) parts.push(`<span class="dim">${T.includes(nonCNY.join("/"))}</span>`);
@@ -1304,6 +1328,20 @@
         const stackedRow = getComputedStyle(host).flexDirection === "row" && host.parentElement
             && getComputedStyle(host.parentElement).flexDirection === "column";
         host.classList.toggle("shc-bulk-title-row", !!stackedRow);
+        // 让标题行铺满可用宽度，"全部加购" 才能靠 margin-left:auto 回到最右侧；
+        // 父级是列方向时用 align-self:stretch（横向拉伸），行方向时用 flex-grow。
+        const hostParent = host.parentElement;
+        const parentStyle = hostParent && getComputedStyle(hostParent);
+        if (host.style && parentStyle && parentStyle.display.includes("flex")) {
+            // 两个方向互斥的属性每次都重置，避免同一节点换父级方向后残留另一种拉伸方式
+            if (parentStyle.flexDirection.startsWith("column")) {
+                host.style.alignSelf = "stretch";
+                host.style.flex = "";
+            } else {
+                host.style.flex = "1 1 auto";
+                host.style.alignSelf = "";
+            }
+        }
         if (!bulkCartButton) {
             bulkCartButton = document.createElement("button");
             bulkCartButton.id = "shc-bulk-cart";
@@ -1312,6 +1350,13 @@
             bulkCartButton.setAttribute("aria-live", "polite");
             bulkCartButton.addEventListener("click", addBulkToCart);
         }
+        // 断点切换（缩放）时标题行会换到另一个父级，旧的拉伸样式必须清掉，
+        // 否则两个节点同时被拉伸，按钮就会忽左忽右。
+        if (bulkCartButton._shcHost && bulkCartButton._shcHost !== host && bulkCartButton._shcHost.style) {
+            bulkCartButton._shcHost.style.flex = "";
+            bulkCartButton._shcHost.style.alignSelf = "";
+        }
+        bulkCartButton._shcHost = host;
         if (bulkCartButton.parentElement !== host) host.appendChild(bulkCartButton);
         return bulkCartButton;
     }
@@ -1662,11 +1707,13 @@
             el.style.marginTop = "";
         }
     }
-    function cardGridOf(row, from) {
+    function cardGridOf(row, from, includeRow = false) {
         const img = row.querySelector("img");
-        let node = from;
-        while (node && node !== row) {
-            if (getComputedStyle(node).display === "grid" && node.getBoundingClientRect().width > 120 && (!img || node.contains(img))) return node;
+        let node = from || row;
+        while (node) {
+            const isGrid = getComputedStyle(node).display === "grid" && node.getBoundingClientRect().width > 120 && (!img || node.contains(img));
+            if (isGrid && (includeRow || node !== row)) return node;
+            if (node === row) break;
             node = node.parentElement;
         }
         return null;
@@ -1690,27 +1737,19 @@
                         gridArea: "auto", gridColumn: "1 / -1", gridRow: "auto",
                         justifySelf: "stretch", alignSelf: "start", width: "auto",
                         maxWidth: "100%", minWidth: "0", margin: "2px 0 0",
-                        paddingLeft: "0", lineHeight: "", fontSize: "", transform: ""
+                        paddingLeft: "0", lineHeight: "", fontSize: ""
                     });
                     if (el.parentElement !== card || el.nextElementSibling) card.appendChild(el);
                 };
                 const fitInline = () => {
                     el.style.fontSize = "11px";
                     el.classList.remove("tight");
-                    if (el.scrollWidth <= el.clientWidth + 1) return true;
+                    if (el.scrollWidth <= el.clientWidth + 1) return;
                     if (el.querySelector(".shc-release-discount-time")) {
                         ownRow();
-                        return false;
+                        return;
                     }
                     el.classList.add("tight");
-                    return true;
-                };
-                const centerOnNative = () => {
-                    el.style.transform = "";
-                    const target = (currentPriceLeaf(native) || native).getBoundingClientRect();
-                    const box = el.getBoundingClientRect();
-                    const dy = Math.round(target.top + target.height / 2 - (box.top + box.height / 2));
-                    el.style.transform = dy ? `translateY(${dy}px)` : "";
                 };
                 const nativeLeft = () => {
                     let left = Infinity;
@@ -1734,10 +1773,11 @@
                         paddingLeft: "0", lineHeight: "1.3"
                     });
                     if (el.nextElementSibling !== native) card.insertBefore(el, native);
+                    const locked = el.classList.contains("locked");
                     const avail = Math.floor(nativeLeft() - el.getBoundingClientRect().left - 4);
-                    if (avail < 70) return ownRow();
-                    el.style.maxWidth = `${avail}px`;
-                    if (fitInline()) centerOnNative();
+                    if (!locked && avail < 70) return ownRow();
+                    el.style.maxWidth = locked ? "none" : `${avail}px`;
+                    fitInline();
                 };
                 applyInline();
                 trackMobileFit(row, el, applyInline);
@@ -1772,7 +1812,7 @@
         if (days > 0) parts.push(`${days}${T.days}`);
         if (days > 0 || hours > 0) parts.push(`${hours}${T.hours}`);
         parts.push(`${minutes}${T.minutes}`, `${seconds}${T.seconds}`);
-        return `${T.discountLeft}${parts.join(" ")}`;
+        return `${T.discountLeft}${parts.join("")}`;
     }
     function discountPartElements(el) {
         let label = el.querySelector(".shc-discount-label");
@@ -1803,10 +1843,104 @@
         const title = T.discountEndsAt(new Date(end).toLocaleString(IS_ZH ? "zh-CN" : "en-US"));
         if (el.title !== title) el.title = title;
     }
+    function mobileDiscountHosts(row) {
+        const card = cardGridOf(row, row, true);
+        if (!card) return null;
+        const cellOfArea = name => [ ...card.children ]
+            .find(cell => new RegExp(`\\b${name}\\b`).test(getComputedStyle(cell).gridArea));
+        return { capsule: cellOfArea("capsule"), title: cellOfArea("title") };
+    }
+    function placeMobileDiscount(el, row) {
+        const hosts = mobileDiscountHosts(row);
+        const capsule = hosts && hosts.capsule;
+        if (!capsule) return false;
+        const capRect = capsule.getBoundingClientRect();
+        el.style.position = "absolute";
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        el.style.right = "0px";
+        el.style.left = "auto";
+        el.style.transform = "translateY(-50%)";
+        el.style.width = "max-content";
+        el.style.margin = "0";
+        el.style.whiteSpace = "nowrap";
+        el.style.maxWidth = `${Math.round(capRect.width * 0.5)}px`;
+        el.style.overflow = "hidden";
+        el.style.textOverflow = "ellipsis";
+        el.style.zIndex = "10";
+        if (getComputedStyle(capsule).position === "static") capsule.style.position = "relative";
+        if (getComputedStyle(capsule).overflow !== "visible") capsule.style.overflow = "visible";
+        if (el.parentElement !== capsule) capsule.appendChild(el);
+        el._shcMobileAnchor = { capsule, title: hosts.title };
+        syncMobileDiscountTop(el);
+        return true;
+    }
+    function syncMobileDiscountTop(el) {
+        const anchor = el._shcMobileAnchor;
+        if (!anchor || !anchor.capsule.isConnected) return;
+        const capRect = anchor.capsule.getBoundingClientRect();
+        const titleRect = anchor.title && anchor.title.isConnected && anchor.title.getBoundingClientRect();
+        const titleCenter = titleRect ? titleRect.top + titleRect.height / 2 : capRect.top + capRect.height / 2;
+        const top = `${Math.max(0, Math.round(titleCenter - capRect.top))}px`;
+        if (el.style.top !== top) el.style.top = top;
+    }
+    // ── 倒计时统一挂到"我的类别"那一行 ──
+    // 该行本身是整卡宽度的 flex 容器，倒计时用 margin-left:auto 贴右，
+    // 不依赖任何像素测量，桌面/移动端同一套逻辑，窗口拉伸自动自适应。
+    function categoryLineOf(row) {
+        const label = directLabelOf(row, CATEGORY_LABEL_RE);
+        let line = label && label.parentElement;
+        if (!line) return null;
+        // Steam 会把这一行包在更宽的同级 flex 容器里（整块信息区），向上爬到最宽的那层，
+        // margin-left:auto 才能真正贴到卡片右侧。
+        for (let i = 0; i < 3; i++) {
+            const up = line.parentElement;
+            if (!up || up === row) break;
+            if (!getComputedStyle(up).display.includes("flex")) break;
+            if (up.getBoundingClientRect().width < line.getBoundingClientRect().width * 1.2) break;
+            line = up;
+        }
+        return { line, label };
+    }
+    function placeDiscountOnCategoryLine(el, row) {
+        const target = categoryLineOf(row);
+        if (!target) return false;
+        const line = target.line;
+        el.style.position = "static";
+        el.style.left = el.style.top = el.style.height = el.style.right = "";
+        el.style.transform = "";
+        el.style.display = "inline-flex";
+        el.style.alignItems = "center";
+        el.style.alignSelf = "center";
+        el.style.margin = "0 0 0 auto";
+        el.style.width = "max-content";
+        el.style.maxWidth = "55%";
+        el.style.overflow = "hidden";
+        el.style.whiteSpace = "nowrap";
+        el.style.flex = "0 0 auto";
+        el.style.zIndex = "10";
+        if (el.parentElement !== line) line.appendChild(el);
+        el._shcCategoryLine = line;
+        el._shcMobileAnchor = null;
+        return true;
+    }
     function updateDiscountTimes() {
         const now = Date.now();
-        document.querySelectorAll(".shc-discount-time[data-end]").forEach(el => paintDiscountTime(el, now));
+        document.querySelectorAll(".shc-discount-time[data-end]").forEach(el => {
+            if (el.classList.contains("shc-release-discount-time")) {
+                const line = el._shcCategoryLine;
+                if (!line || !line.isConnected || el.parentElement !== line) {
+                    const row = el.closest("div.Panel");
+                    if (row && !placeDiscountOnCategoryLine(el, row)) {
+                        if (el._shcMobileAnchor) syncMobileDiscountTop(el);
+                        else if (isMobileUI()) placeMobileDiscount(el, row);
+                    }
+                }
+            }
+            paintDiscountTime(el, now);
+        });
     }
+
     const CATEGORY_LABEL_RE = /^(?:我的类别|我的類別|我的分类|我的分類|my categories)\s*[:：]?$/i;
     const RELEASE_LABEL_RE = /^(?:发行日期|發行日期|release date)\s*[:：]?$/i;
     const CART_LABEL_RE = /^(?:添加至购物车|添加到购物车|添加购物车|加入购物车|在购物车中|add to cart|in cart)\s*$/i;
@@ -1857,13 +1991,16 @@
         }
         const releaseLabel = directLabelOf(row, RELEASE_LABEL_RE);
         const releaseRow = releaseLabel && releaseLabel.parentElement;
+        const categoryLabel = directLabelOf(row, CATEGORY_LABEL_RE);
         const steamMobile = steamMobileLayout(row);
-        const mobile = steamMobile === null ? isMobileUI() : steamMobile;
+        // 行级 grid 检测会因懒渲染/重建暂时读不到，只能用来说明"确实已经是移动网格"；
+        // 视口已经是移动端时不能被它否掉，否则同一行会在两种排版间来回跳。
+        const mobile = steamMobile === true || isMobileUI();
         const priceHost = mobile ? row.querySelector(".shc-price") : null;
         const cartLabel = mobile ? directLabelOf(row, CART_LABEL_RE) : null;
         const cartControl = cartLabel && (cartLabel.closest("a,button") || cartLabel);
         const cartHost = cartControl && cartControl.parentElement;
-        if (!releaseRow && !priceHost && !cartHost) {
+        if (!categoryLabel && !releaseRow && !priceHost && !cartHost) {
             if (el) removeDiscountTime(el);
             return;
         }
@@ -1873,7 +2010,7 @@
         }
         restoreDiscountPurchase(el);
         const parts = discountPartElements(el);
-        const textSource = releaseLabel || priceHost || cartHost;
+        const textSource = categoryLabel || releaseLabel || priceHost || cartHost;
         const native = copyDiscountTextStyle(el, textSource);
         copyDiscountTextStyle(parts.label, textSource);
         const nativeValue = releaseLabel && releaseLabel.nextElementSibling;
@@ -1895,6 +2032,27 @@
         el.style.left = el.style.top = el.style.height = "";
         el.style.width = el.style.margin = el.style.flex = el.style.gridColumn = el.style.transform = "";
         el.style.position = mobile ? "static" : "";
+        el.style.display = "";
+        el._shcMobileAnchor = null;
+        el._shcCategoryLine = null;
+        if (placeDiscountOnCategoryLine(el, row)) {
+            el.dataset.end = String(current.discountEndsAt);
+            paintDiscountTime(el);
+            return;
+        }
+        if (mobile) {
+            if (placeMobileDiscount(el, row)) {
+                el.dataset.end = String(current.discountEndsAt);
+                paintDiscountTime(el);
+                return;
+            }
+            // 行节点正在被 Steam 重建时读不到封面格，先隐藏，等下一秒 tick 重试，
+            // 避免退回到购买格/发行日期行造成上下跳动。
+            el.style.display = "none";
+            el.dataset.end = String(current.discountEndsAt);
+            paintDiscountTime(el);
+            return;
+        }
         if (cartHost) {
             let purchaseHost = cartHost;
             while (purchaseHost && purchaseHost !== row && getComputedStyle(purchaseHost).gridColumn !== "purchase") {
@@ -1952,7 +2110,6 @@
         if (el.parentElement !== releaseRow) releaseRow.appendChild(el);
         const releaseRect = releaseRow.getBoundingClientRect();
         const labelRect = releaseLabel.getBoundingClientRect();
-        const categoryLabel = directLabelOf(row, CATEGORY_LABEL_RE);
         const categoryRow = categoryLabel && categoryLabel.parentElement;
         const gap = categoryRow ? releaseRect.top - categoryRow.getBoundingClientRect().bottom : 24;
         const height = releaseRect.height || 16;
@@ -2092,8 +2249,42 @@
         const toTop = event => {
             event.preventDefault();
             event.stopPropagation();
+            if (swiped) {
+                swiped = false;
+                return;
+            }
+            // 页面较短时上滑几乎不产生滚动事件，手指位移也可能很小；
+            // 只要刚刚发生过滚动，就认为这次点击是滑动手势的副产物。
+            if (Date.now() - lastScrollAt < 320) return;
             scrollWishlistToTop();
         };
+        let lastScrollAt = 0;
+        window.addEventListener("scroll", () => { lastScrollAt = Date.now(); }, { capture: true, passive: true });
+        // 移动端从底部上滑时手指很容易落在按钮上，touchend 后浏览器仍会补发 click，
+        // 导致"滑一下就回到顶部"。这里记录滑动距离，超过阈值就吞掉这次点击。
+        let swiped = false;
+        let touchStart = null;
+        div.addEventListener("touchstart", event => {
+            swiped = false;
+            const touch = event.touches && event.touches[0];
+            touchStart = touch ? { x: touch.clientX, y: touch.clientY } : null;
+        }, { passive: true });
+        // 页面很短时上滑几乎不滚动，touchend 的位移可能只有几像素；
+        // 只要 touchmove 动过 4px 就认定为滑动，别再等 8px 的终点位移。
+        div.addEventListener("touchmove", event => {
+            const touch = event.touches && event.touches[0];
+            if (touch && touchStart && Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > 4) swiped = true;
+        }, { passive: true });
+        div.addEventListener("touchend", event => {
+            const touch = event.changedTouches && event.changedTouches[0];
+            if (touch && (!touchStart || Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) > 8)) swiped = true;
+            touchStart = null;
+        }, { passive: true });
+        // 手势被系统/浏览器接管去滚动时会走 touchcancel，同样视为滑动而非点击
+        div.addEventListener("touchcancel", () => {
+            swiped = true;
+            touchStart = null;
+        }, { passive: true });
         div.addEventListener("click", toTop);
         div.addEventListener("keydown", event => {
             if (event.key === "Enter" || event.key === " ") toTop(event);
@@ -2193,6 +2384,7 @@
             if (barNode && barNode.dataset.ready === "1" && !barNode.isConnected) insertSummary(barNode, rowsHost());
             if (bulkCartButton && !bulkCartButton.isConnected) updateBulkCartButton();
             const external = records.filter(r => !isOwnRecord(r));
+            if (lowOnly && external.length) hideNewRowsInLowOnly(external);
             if (external.some(r => r.type === "childList")) scheduleHarvest();
             if (external.length && mobileFits.size) runMobileFits();
         }).observe(document.body, { childList: true, characterData: true, subtree: true });
@@ -2236,14 +2428,23 @@
         .shc-summary .save { color: #a5cb00; }
         .shc-summary .warn { color: #ffc53d; }
         .shc-summary-body { display: contents; }
-        .shc-summary .shc-low-toggle { flex-shrink: 0; margin: 0; font-weight: 600; font-size: 12px; }
+        .shc-summary .shc-seg { display: inline-flex; align-items: baseline; gap: 4px;
+            flex: 0 0 auto; white-space: nowrap; }
+        .shc-bulk-title-row { min-width: 0; }
+        /* 抽屉开关是 Steam 原生按钮的克隆，自带 Focusable 的 10px 左内边距；
+           归零后首行文字与换行后的内容共用同一条左基准线（即 "N 项史低中" 的 N）。 */
+        .shc-summary button.shc-low-toggle { flex-shrink: 0; margin: 0; padding-left: 0;
+            font-weight: 600; font-size: 12px; }
         .shc-low-toggle:not(.Focusable) { display: inline-flex; align-items: center; gap: 4px;
-            padding: 2px 5px; border: 0; background: transparent; color: #fff; font: inherit; cursor: pointer; }
+            padding: 2px 5px 2px 0; border: 0; background: transparent; color: #fff; font: inherit; cursor: pointer; }
         .shc-low-toggle:not(.Focusable) > svg { width: 12px; height: 12px; }
         .shc-low-toggle:not(.Focusable)[aria-expanded="true"] { color: #1a9fff; text-decoration: underline; text-underline-offset: 4px; }
         .shc-low-hidden { display: none !important; }
+        body.shc-low-only div.Panel[data-index]:not(.shc-at-low-row),
+        body.shc-low-only .wishlist_row[data-appid]:not(.shc-at-low-row) { display: none !important; }
         .shc-low-drawer-open { box-sizing: border-box; padding: 6px;
-            border-radius: 4px; background: rgba(23,29,37,.35); animation: shc-low-drawer-in .18s ease-out; }
+            border-radius: 4px; background: rgba(23,29,37,.35); }
+        .shc-low-drawer-enter { animation: shc-low-drawer-in .18s ease-out; }
         @keyframes shc-low-drawer-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         #shc-bulk-cart { flex: 0 0 auto; box-sizing: border-box; min-height: 32px; margin-left: auto;
             padding: 0 14px; border: 0; border-radius: 2px; cursor: pointer;
@@ -2275,6 +2476,9 @@
         @keyframes shc-cat-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
         .shc-mobile .shc-summary { margin: 4px 0 10px; padding: 6px clamp(8px, 1.4vw, 12px); }
+        @media (max-width: 600px) {
+            .shc-summary .save { flex: 1 1 0; min-width: 5em; }
+        }
         .shc-mobile .shc-low-drawer-open { padding: 4px; }
         .shc-mobile .shc-bulk-title-row { align-self: stretch; }
         .shc-mobile #shc-bulk-cart { min-height: 30px; padding: 0 10px; font-size: 11px; }
