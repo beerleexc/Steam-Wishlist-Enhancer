@@ -17,7 +17,7 @@
 </div>
 
 > [!NOTE]
-> 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，> 脚本不会上传你的Steam账号、Cookie给第三方；所有请求均为获取公开价格、愿望单列表；账号已拥有游戏列表仅在本地浏览器读取，不会外传。脚本运行所需数据将储存在本地。。
+> 本脚本仅作用于 **[Steam 愿望单](https://store.steampowered.com/wishlist)**，脚本不会上传你的Steam账号、Cookie给第三方；所有请求均为获取公开价格、愿望单列表；账号已拥有游戏列表仅在本地浏览器读取，不会外传。脚本运行所需数据将储存在本地。。
 
 <a id="目录导航"></a>
 # 📑 [目录导航](#目录导航)
