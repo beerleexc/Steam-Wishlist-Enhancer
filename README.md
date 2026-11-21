@@ -127,6 +127,7 @@
 ## 安装地址
 > * [Github](https://github.com/beerleexc/Steam-Wishlist-Enhancer/releases)
 > * [GreasyFork](https://greasyfork.org/zh-CN/scripts/605431)
+> * [脚本猫](https://scriptcat.org/zh-CN/script-show-page/9188)
 ---
 
 <a id="数据来源"></a>
