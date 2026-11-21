@@ -4,7 +4,7 @@
 // @description Steam愿望单页面功能增强，可在愿望单里直接查看多地区价格、历史最低价、愿望单游戏金额总和，史低价格总和的脚本。 Regional prices, historical lows, totals, and seasonal sale countdowns for Steam wishlists
 // @author      beerlee
 // @license     MIT
-// @version     1.8.5
+// @version     1.8.6
 // @include     *://store.steampowered.com/wishlist/*
 // @icon        https://raw.githubusercontent.com/beerleexc/Steam-Wishlist-Enhancer/refs/heads/main/assets/icon.svg
 // @supportURL  https://github.com/beerleexc/Steam-Wishlist-Enhancer/issues
@@ -1127,7 +1127,7 @@
         const live = saleIsLive(sale, now);
         const left = Math.floor(((live ? sale.endMs : sale.startMs) - now) / 6e4);
         writeText(cdNodes.state, live ? T.endsIn : T.startsIn);
-        // 补零填满 2ch 定宽槽：单位数时右对齐会在数字左侧留出一格空白，看起来像多余的大间距
+        // 补零填满 2ch 定宽槽，避免个位数右对齐时左侧留白
         writeText(cdNodes.days, String(Math.floor(left / 1440)).padStart(2, "0"));
         writeText(cdNodes.hours, String(Math.floor(left % 1440 / 60)).padStart(2, "0"));
         writeText(cdNodes.mins, String(left % 60).padStart(2, "0"));
@@ -1720,6 +1720,9 @@
                 const rowCount = getComputedStyle(card).gridTemplateRows.split(" ").filter(Boolean).length;
                 card.classList.toggle("shc-mobile-price-card", rowCount === 6);
                 card.classList.toggle("shc-mobile-price-card-4", rowCount === 4);
+                // lower 格默认在固定行高里垂直居中，钉到行顶后价格行与发行日期行精确对齐。
+                lower.style.alignSelf = "start";
+                el.classList.add("in-lower");
                 lower.appendChild(el);
             }
             else {
@@ -1798,7 +1801,6 @@
         if (!capsule) return null;
         return { capsule, title: areaCellOf(row, "title") };
     }
-    // 无"我的类别"行的卡（好友愿望单）：倒计时贴右落在 mid 格，与有类别行页面保持同一行位置。
     function styleDiscountInline(el) {
         restoreDiscountPurchase(el);
         el.style.position = "static";
@@ -1815,11 +1817,11 @@
         el.style.whiteSpace = "nowrap";
         el.style.flex = "0 0 auto";
     }
+    // 无"我的类别"行的卡（好友愿望单）：倒计时贴右落在 mid 格，与有类别行页面保持同一行位置。
     function placeDiscountInMidArea(el, row) {
         const mid = areaCellOf(row, "mid");
         if (!mid) return false;
         styleDiscountInline(el);
-        el.style.gridColumn = "";
         el.style.textAlign = "right";
         if (el.parentElement !== mid) mid.appendChild(el);
         el._shcMobileAnchor = null;
@@ -1977,9 +1979,7 @@
         const releaseLabel = directLabelOf(row, RELEASE_LABEL_RE);
         const releaseRow = releaseLabel && releaseLabel.parentElement;
         const categoryLabel = directLabelOf(row, CATEGORY_LABEL_RE);
-        const steamMobile = steamMobileLayout(row);
-        // 行级检测只用于确认"确实是移动网格"，视口已是移动端时不能被它否掉，避免两种排版来回跳。
-        const mobile = steamMobile === true || isMobileUI();
+        const mobile = isMobilePriceLayout(row);
         const priceHost = mobile ? row.querySelector(".shc-price") : null;
         const cartLabel = mobile ? directLabelOf(row, CART_LABEL_RE) : null;
         const cartControl = cartLabel && (cartLabel.closest("a,button") || cartLabel);
@@ -2025,7 +2025,6 @@
             paintDiscountTime(el);
             return;
         }
-        // 无"我的类别"行（他人愿望单）时走 mid 区右对齐，与有类别行页面的倒计时保持同一行位置。
         if (!mobile && placeDiscountInMidArea(el, row)) {
             el.dataset.end = String(current.discountEndsAt);
             paintDiscountTime(el);
@@ -2145,7 +2144,7 @@
             visibleRows.delete(row);
             return;
         }
-        // 只看史低时非史低行是 display:none，测量为 0 会走错降级路径，恢复可见后再画
+        // display:none 的行测量为 0 会走错降级路径，跳过待可见后再画
         if (!row.getClientRects().length) return;
         const link = rowLink(row);
         const r = link && keyOfHref(link.href);
@@ -2158,13 +2157,14 @@
             row.querySelectorAll(".shc-mobile-price-card, .shc-mobile-price-card-4").forEach(card => card.classList.remove("shc-mobile-price-card", "shc-mobile-price-card-4"));
         }
         const existing = row.querySelector(".shc-price");
+        const clearLowerPin = el => { const p = el && el.parentElement; if (p && p.style.alignSelf === "start") p.style.alignSelf = ""; };
         if (!state) {
-            if (existing) existing.remove();
+            if (existing) { clearLowerPin(existing); existing.remove(); }
             return;
         }
         const sig = `${state === "price" ? priceSignature(info) : state}${mobile ? "|m" : "|d"}`;
         if (existing && existing.dataset.sig === sig && existing.dataset.layoutVersion === String(priceLayoutVersion)) return;
-        if (existing) existing.remove();
+        if (existing) { clearLowerPin(existing); existing.remove(); }
         insertPriceLine(row, link, info, state);
         syncRowDiscountTime(row, info);
     }
@@ -2497,14 +2497,16 @@
                 white-space: normal; overflow-wrap: anywhere; }
             .shc-release-discount-time { position: static; display: block;
                 width: auto; white-space: nowrap; }
-            .shc-mobile-price-card { grid-template-rows: 30px auto 28px 25px minmax(42px, auto) minmax(40px, auto); }
+            .shc-mobile-price-card { grid-template-rows: 30px auto 28px 25px 42px 40px !important; }
             /* 501~910px 的 4 行网格：只放宽 lower(第3行)/purchase(第4行) 并取消固定卡高，避免 6 行模板错配导致内容溢出 */
-            .shc-mobile-price-card-4 { height: unset; grid-template-rows: 32px 26px minmax(38px, auto) minmax(42px, auto); }
+            .shc-mobile-price-card-4 { height: unset !important; grid-template-rows: 32px 26px minmax(38px, auto) minmax(42px, auto) !important; }
             /* 史低/当前同一行右端显示：不收缩、不换行，避免窄屏把「当前 ¥xx」挤到下一行 */
             .shc-price.compact.mobile-info { flex: 0 0 auto; align-self: start; justify-self: end;
                 position: relative; top: -3.5px;
                 width: max-content; min-width: 0; margin: 0 0 0 8px; padding: 0;
                 font-size: 10px; line-height: 1.25; text-align: right; white-space: nowrap; }
+            /* lower 格已钉到行顶，价格行与发行日期行同高对齐 */
+            .shc-price.compact.mobile-info.in-lower { top: 0px; }
             .shc-price.compact.mobile-info .shc-mobile-lowline,
             .shc-price.compact.mobile-info .shc-mobile-currentline { display: inline; white-space: nowrap; }
             /* 生成内容的空格会被折叠掉，用外边距保证史低与当前之间约两个空格的间隔 */
